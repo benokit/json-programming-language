@@ -1,0 +1,26 @@
+{
+  "name": "json-programming-language",
+  "version": "1.0.0",
+  "description": "Pure functions declared in JSON",
+  "homepage": "https://github.com/benokit/json-programming-language#readme",
+  "bugs": {
+    "url": "https://github.com/benokit/json-programming-language/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/benokit/json-programming-language.git"
+  },
+  "license": "MIT",
+  "author": "Benjamin Batistic",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "chai": "^6.2.1",
+    "fast-printf": "^1.6.10",
+    "lodash-es": "^4.17.21",
+    "mocha": "^11.7.5"
+  }
+}
