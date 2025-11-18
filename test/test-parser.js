@@ -56,12 +56,58 @@ describe('pure json programming language', () => {
         expect(output).to.deep.equal(expectedOutput);
     });
 
-    it ('should return a function that sum numbers', () => {
+    it ('should return a function that sums numbers', () => {
         const program = {
             $sum: '$'
         };
         const f = parse(program);
         const input = [1, 2, 3];
         expect(f({input})).to.equal(1 + 2 + 3);
+    });
+
+    it ('should return a function that adds 1 to a number', () => {
+        const program = {
+            $sum: [1, '$']
+        };
+        const f = parse(program);
+        const input = 1;
+        expect(f({input})).to.equal(1 + 1); 
+    });
+
+    it ('should return a function that applies a function', () => {
+        const program = {
+            $apply: {
+                $fn: {
+                    $sum: [1, '$']
+                },
+                $to: '$'
+            }
+        };
+        const f = parse(program);
+        const input = 1;
+        expect(f({input})).to.equal(1 + 1); 
+    });
+
+    it ('should return a function that adds 2 to each number in an array', () => {
+        const program = {
+            $let: {
+                a: 1,
+                $f: {
+                    $sum: ['@a', '#']
+                }
+            },
+            $map: {
+                $fn: {
+                    $apply: {
+                        $fn: '@$f',
+                        $to: '#'
+                    }
+                },
+                $over: '$'
+            }
+        };
+        const f = parse(program);
+        const input = [1, 2, 3];
+        expect(f({input})).to.deep.equal([2, 3, 4]); 
     });
 });
