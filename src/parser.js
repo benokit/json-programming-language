@@ -1,4 +1,4 @@
-import { filter, isObject, isString, map, split, get, first, find } from "lodash-es"
+import { isObject, isString, map, get, find, mapValues, isArray, sum } from "lodash-es"
 
 export {
     parseFunction as parse
@@ -9,22 +9,22 @@ function parseFunction(tree) {
         if (tree == '#') {
             return ({ local }) => local;
         }
-        if (tree.startsWith('#')) {
-            const pointer = tree.slice(1);
+        if (tree.startsWith('#.')) {
+            const pointer = tree.slice(2);
             return ({ local }) => get(local, pointer);
         }
         if (tree == '$') {
             return ({ input }) => input;
         }
-        if (tree.startsWith('$')) {
-            const pointer = tree.slice(1);
+        if (tree.startsWith('$.')) {
+            const pointer = tree.slice(2);
             return ({ input }) => get(input, pointer);
         }
         if (tree.startsWith('@')) {
-            const pointer = tree.slice(2);
+            const pointer = tree.slice(1);
             return ({ global }) => get(global, pointer);
         }
-        return _ => tree; 
+        return () => tree; 
     }
 
     if (isObject(tree)) {
@@ -41,11 +41,18 @@ function parseFunction(tree) {
         return parseObject(tree);
     }
 
-    return _ => tree;
+    if (isArray(tree)) {
+        const funks = map(tree, parseFunction);
+        return x => {
+            return map(funks, f => f(x));
+        }
+    }
+
+    return () => tree;
 }
 
 function parseObject(obj) {
-    const funks = map(obj, parseFunction);
+    const funks = mapValues(obj, parseFunction);
     return ({global, input, local}) => {
         const result = {};
         const extendedGlobal = { ...global };
@@ -66,5 +73,9 @@ const primitives = {
         const f = parseFunction($fn);
         const over = parseFunction($over);
         return (x) => map(over(x), v => f({ ...x, local: v }));
+    },
+    $sum: (lhs) => {
+        const fs = parseFunction(lhs);
+        return x => sum(fs(x));
     }
 }
