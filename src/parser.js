@@ -1,4 +1,5 @@
-import { isObject, isString, map, get, find, mapValues, isArray, sum } from "lodash-es"
+import { isObject, isString, map, get, find, mapValues, isArray } from 'lodash-es'
+import { primitives } from './primitives.js';
 
 export {
     parse
@@ -37,11 +38,30 @@ function parsePrimitive(tree) {
     const params = Object.keys(tree);
     const getLocals = parseObject(tree['$let']);
     const keyOfPrimitive = find(params, b => b !== '$let');
-    const f = primitives[keyOfPrimitive](tree[keyOfPrimitive])
+    const f = primitives[keyOfPrimitive](parsePrimitiveArgs(tree[keyOfPrimitive]));
     return ({ vars, input, value }) => {
         const extendedVars = { ...vars, ...getLocals({ vars, input, value }) };
         return f({ vars: extendedVars, input, value });
     }
+}
+
+function parsePrimitiveArgs(tree) {
+    if (isString(tree)) {
+        return parseString(tree);
+    }
+
+    if (isArray(tree)) {
+       return parseArray(tree) 
+    }
+
+    if (isObject(tree)) {
+        if (Object.keys(tree)[0]?.startsWith('$')) {
+            return mapValues(tree, parseTree);
+        }
+        return parseObject(tree);
+    }
+
+    return () => tree;
 }
 
 function parseArray(tree) {
@@ -89,80 +109,4 @@ function parseString(tree) {
         return ({ vars }) => get(vars, pointer);
     }
     return () => tree;
-}
-
-const primitives = {
-    $let: true,
-    $return: (lhs) => {
-        const f = parseTree(lhs);
-        return x => f(x);
-    },
-    $apply: ({ $fn, $to }) => {
-        const f = parseTree($fn);
-        const to = parseTree($to);
-        return x => f({ ...x, value: to(x)});
-    },
-    $conditional: ({$if, $then, $else}) => {
-        const condition = parseTree($if);
-        const whenTrue = parseTree($then);
-        const whenFalse = parseTree($else);
-        return x => condition(x) ? whenTrue(x) : whenFalse(x);
-    },
-    $eq: (lhs) => {
-        const f = parseTree(lhs);
-        return x => {
-            const [a, b] = f(x);
-            return a === b;
-        };
-    },
-    $neq: (lhs) => {
-        const f = parseTree(lhs);
-        return x => {
-            const [a, b] = f(x);
-            return a != b;
-        };
-    },
-    $negate: (lhs) => {
-        const f = parseTree(lhs);
-        return x => {
-            return !f(x);
-        };
-    },
-    $lt: (lhs) => {
-        const f = parseTree(lhs);
-        return x => {
-            const [a, b] = f(x);
-            return a < b;
-        };
-    },
-    $lte: (lhs) => {
-        const f = parseTree(lhs);
-        return x => {
-            const [a, b] = f(x);
-            return a <= b;
-        };
-    },
-    $gt: (lhs) => {
-        const f = parseTree(lhs);
-        return x => {
-            const [a, b] = f(x);
-            return a > b;
-        };
-    },
-    $gte: (lhs) => {
-        const f = parseTree(lhs);
-        return x => {
-            const [a, b] = f(x);
-            return a >= b;
-        };
-    },
-    $map: ({ $fn, $over }) => {
-        const f = parseTree($fn);
-        const over = parseTree($over);
-        return x => map(over(x), v => f({ ...x, value: v }));
-    },
-    $sum: (lhs) => {
-        const fs = parseTree(lhs);
-        return x => sum(fs(x));
-    }
 }

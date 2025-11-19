@@ -3,7 +3,7 @@ import { expect } from 'chai';
 import { parse } from '../src/parser.js'
 
 describe('pure json programming language', () => {
-    it('constant function - object', () => {
+    it('trivial', () => {
         const program = {};
         const f = parse(program);
         expect(f()).to.deep.equal({});
@@ -24,6 +24,16 @@ describe('pure json programming language', () => {
         };
         const f = parse(program);
         expect(f()).to.equal('test');
+    });
+
+    it ('constant function - object', () => {
+        const program = {
+            $return: {
+                test: 'test'
+            }
+        };
+        const f = parse(program);
+        expect(f()).to.deep.equal(program.$return);
     });
 
     it ('constant function - number ', () => {
