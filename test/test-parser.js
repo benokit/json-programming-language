@@ -3,38 +3,38 @@ import { expect } from 'chai';
 import { parse } from '../src/parser.js'
 
 describe('pure json programming language', () => {
-    it('should return a function that returns empty object if empty object', () => {
+    it('constant function - object', () => {
         const program = {};
         const f = parse(program);
-        expect(f({})).to.deep.equal({});
+        expect(f()).to.deep.equal({});
     });
 
-    it ('should return an identity function', () => {
+    it ('identity function', () => {
         const program = {
             $return: '$'
         };
         const f = parse(program);
         const input = {};
-        expect(f({input})).to.equal(input);
+        expect(f(input)).to.equal(input);
     });
 
-    it ('should return a function that returns a constant string', () => {
+    it ('constant function - string', () => {
         const program = {
             $return: 'test'
         };
         const f = parse(program);
-        expect(f({})).to.equal('test');
+        expect(f()).to.equal('test');
     });
 
-    it ('should return a function that returns a constant number', () => {
+    it ('constant function - number ', () => {
         const program = {
             $return: 1.1
         };
         const f = parse(program);
-        expect(f({})).to.equal(1.1);
+        expect(f()).to.equal(1.1);
     });
 
-    it ('should return a function that maps an object into another object', () => {
+    it ('map object to object', () => {
         const program = {
             name: '$.person.name',
             age: '$.age',
@@ -47,7 +47,7 @@ describe('pure json programming language', () => {
             },
             age: 21
         }
-        const output = f({input});
+        const output = f(input);
         const expectedOutput = {
             name: 'Ben',
             age: 21,
@@ -56,39 +56,108 @@ describe('pure json programming language', () => {
         expect(output).to.deep.equal(expectedOutput);
     });
 
-    it ('should return a function that sums numbers', () => {
+    it ('sum numbers', () => {
         const program = {
             $sum: '$'
         };
         const f = parse(program);
         const input = [1, 2, 3];
-        expect(f({input})).to.equal(1 + 2 + 3);
+        expect(f(input)).to.equal(1 + 2 + 3);
     });
 
-    it ('should return a function that adds 1 to a number', () => {
+    it ('add constant to a number', () => {
         const program = {
             $sum: [1, '$']
         };
         const f = parse(program);
         const input = 1;
-        expect(f({input})).to.equal(1 + 1); 
+        expect(f(input)).to.equal(1 + 1); 
     });
 
-    it ('should return a function that applies a function', () => {
+    it ('apply function', () => {
         const program = {
             $apply: {
                 $fn: {
-                    $sum: [1, '$']
+                    $sum: [1, '#']
                 },
                 $to: '$'
             }
         };
         const f = parse(program);
         const input = 1;
-        expect(f({input})).to.equal(1 + 1); 
+        expect(f(input)).to.equal(1 + 1); 
     });
 
-    it ('should return a function that adds 2 to each number in an array', () => {
+    it ('check equality', () => {
+        const program = {
+            $eq: [ '$.a', '$.b' ]
+        };
+        const f = parse(program);
+        expect(f({ a: 1, b: 2 })).to.equal(false);
+        expect(f({ a: 1, b: 1 })).to.equal(true);
+    });
+
+    it ('conditional if-else', () => {
+        const program = {
+            $conditional: {
+                $if: {
+                    $eq: '$',
+                },
+                $then: 1,
+                $else: 0
+            }
+        };
+        const f = parse(program);
+        expect(f([1, 2])).to.equal(0);
+        expect(f([1, 1])).to.equal(1);
+    });
+
+    it ('declare variable', () => {
+        const program = {
+            $let: {
+                a: '$',
+                b: {
+                    $sum: ['@a', '@a']
+                }
+            },
+            $sum: [1, '@b']
+        };
+        const f = parse(program);
+        expect(f(1)).to.equal(3);
+    });
+
+    it ('declare function (recursive)', () => {
+        const program = {
+            $let: {
+                $f: {
+                    $conditional: {
+                        $if: { $eq: ['#', 3] },
+                        $then: '#',
+                        $else: {
+                            $sum: [ '#',
+                                {
+                                    $apply: {
+                                        $fn: '@$f',
+                                        $to: {
+                                            $sum: [1, '#']
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            $apply: {
+                $fn: '@$f',
+                $to: '$'
+            }
+        };
+        const f = parse(program);
+        expect(f(1)).to.equal(6);
+    });
+
+    it ('map function over array', () => {
         const program = {
             $let: {
                 a: 1,
@@ -108,6 +177,6 @@ describe('pure json programming language', () => {
         };
         const f = parse(program);
         const input = [1, 2, 3];
-        expect(f({input})).to.deep.equal([2, 3, 4]); 
+        expect(f(input)).to.deep.equal([2, 3, 4]); 
     });
 });

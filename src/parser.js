@@ -1,10 +1,15 @@
 import { isObject, isString, map, get, find, mapValues, isArray, sum } from "lodash-es"
 
 export {
-    parseFunction as parse
+    parse
 }
 
-function parseFunction(tree) {
+function parse(program) {
+    const f = parseTree(program);
+    return input => f({input});
+}
+
+function parseTree(tree) {
     if (isString(tree)) {
         return parseString(tree);
     }
@@ -14,7 +19,7 @@ function parseFunction(tree) {
     }
 
     if (isObject(tree)) {
-        if (hasPrimitiveRoot(tree)) {
+        if (isPrimitive(tree)) {
             return parsePrimitive(tree);
         }
         return parseObject(tree);
@@ -23,39 +28,39 @@ function parseFunction(tree) {
     return () => tree;
 }
 
-function hasPrimitiveRoot(node) {
-    const branches = Object.keys(node);
-    return branches.length <=2 && !!primitives[branches[0]];
+function isPrimitive(tree) {
+    const params = Object.keys(tree);
+    return params.length <=2 && !!primitives[params[0]];
 }
 
 function parsePrimitive(tree) {
-    const branches = Object.keys(tree);
+    const params = Object.keys(tree);
     const getLocals = parseObject(tree['$let']);
-    const primitiveKey = find(branches, b => b !== '$let');
-    const f = primitives[primitiveKey](tree[primitiveKey])
-    return ({ global, input, local }) => {
-        const extendedGlobal = { ...global, ...getLocals({ global, input, local }) };
-        return f({ global: extendedGlobal, input, local });
+    const keyOfPrimitive = find(params, b => b !== '$let');
+    const f = primitives[keyOfPrimitive](tree[keyOfPrimitive])
+    return ({ vars, input, value }) => {
+        const extendedVars = { ...vars, ...getLocals({ vars, input, value }) };
+        return f({ vars: extendedVars, input, value });
     }
 }
 
 function parseArray(tree) {
-    const funks = map(tree, parseFunction);
+    const funks = map(tree, parseTree);
     return x => {
         return map(funks, f => f(x));
     }
 }
 
 function parseObject(obj) {
-    const funks = mapValues(obj, parseFunction);
-    return ({global, input, local}) => {
+    const funks = mapValues(obj, parseTree);
+    return ({vars, input, value}) => {
         const result = {};
-        const extendedGlobal = { ...global };
+        const extendedVars = { ...vars };
         for (const key in funks) {
             result[key] = key.startsWith('$')
                 ? funks[key]
-                : funks[key]({ global: extendedGlobal, input, local });
-            extendedGlobal[key] = result[key];
+                : funks[key]({ vars: extendedVars, input, value });
+            extendedVars[key] = result[key];
         }
         return result;
     }
@@ -63,11 +68,11 @@ function parseObject(obj) {
 
 function parseString(tree) {
     if (tree === '#') {
-        return ({ local }) => local;
+        return ({ value }) => value;
     }
     if (tree.startsWith('#.')) {
         const pointer = tree.slice(2);
-        return ({ local }) => get(local, pointer);
+        return ({ value }) => get(value, pointer);
     }
     if (tree === '$') {
         return ({ input }) => input;
@@ -79,9 +84,9 @@ function parseString(tree) {
     if (tree.startsWith('@')) {
         const pointer = tree.slice(1);
         if (pointer.startsWith('$')) {
-            return x => x.global[pointer](x);
+            return x => x.vars[pointer](x);
         }
-        return ({ global }) => get(global, pointer);
+        return ({ vars }) => get(vars, pointer);
     }
     return () => tree;
 }
@@ -89,21 +94,75 @@ function parseString(tree) {
 const primitives = {
     $let: true,
     $return: (lhs) => {
-        const f = parseFunction(lhs);
+        const f = parseTree(lhs);
         return x => f(x);
     },
     $apply: ({ $fn, $to }) => {
-        const f = parseFunction($fn);
-        const to = parseFunction($to);
-        return (x) => f({ ...x, local: to(x)});
+        const f = parseTree($fn);
+        const to = parseTree($to);
+        return x => f({ ...x, value: to(x)});
+    },
+    $conditional: ({$if, $then, $else}) => {
+        const condition = parseTree($if);
+        const whenTrue = parseTree($then);
+        const whenFalse = parseTree($else);
+        return x => condition(x) ? whenTrue(x) : whenFalse(x);
+    },
+    $eq: (lhs) => {
+        const f = parseTree(lhs);
+        return x => {
+            const [a, b] = f(x);
+            return a === b;
+        };
+    },
+    $neq: (lhs) => {
+        const f = parseTree(lhs);
+        return x => {
+            const [a, b] = f(x);
+            return a != b;
+        };
+    },
+    $negate: (lhs) => {
+        const f = parseTree(lhs);
+        return x => {
+            return !f(x);
+        };
+    },
+    $lt: (lhs) => {
+        const f = parseTree(lhs);
+        return x => {
+            const [a, b] = f(x);
+            return a < b;
+        };
+    },
+    $lte: (lhs) => {
+        const f = parseTree(lhs);
+        return x => {
+            const [a, b] = f(x);
+            return a <= b;
+        };
+    },
+    $gt: (lhs) => {
+        const f = parseTree(lhs);
+        return x => {
+            const [a, b] = f(x);
+            return a > b;
+        };
+    },
+    $gte: (lhs) => {
+        const f = parseTree(lhs);
+        return x => {
+            const [a, b] = f(x);
+            return a >= b;
+        };
     },
     $map: ({ $fn, $over }) => {
-        const f = parseFunction($fn);
-        const over = parseFunction($over);
-        return (x) => map(over(x), v => f({ ...x, local: v }));
+        const f = parseTree($fn);
+        const over = parseTree($over);
+        return x => map(over(x), v => f({ ...x, value: v }));
     },
     $sum: (lhs) => {
-        const fs = parseFunction(lhs);
+        const fs = parseTree(lhs);
         return x => sum(fs(x));
     }
 }
