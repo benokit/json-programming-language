@@ -8,7 +8,7 @@ export const primitives = {
     $apply: ({ $fn, $to }) => {
         return x => $fn({ ...x, value: $to(x)});
     },
-    $conditional: ({$if, $then, $else}) => {
+    $conditional: ({ $if, $then, $else }) => {
         return x => $if(x) ? $then(x) : $else(x);
     },
     $eq: (f) => {

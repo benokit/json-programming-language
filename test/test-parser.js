@@ -163,7 +163,7 @@ describe('pure json programming language', () => {
             $let: {
                 $f: {
                     $conditional: {
-                        $if: { $eq: ['#', 3] },
+                        $if: { $gte: ['#', 3] },
                         $then: '#',
                         $else: {
                             $sum: [ '#',
