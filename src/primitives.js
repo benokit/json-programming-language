@@ -1,4 +1,4 @@
-import { map, sum } from 'lodash-es'
+import { filter, map, multiply, sum } from 'lodash-es'
 
 export const primitives = {
     $let: true,
@@ -55,5 +55,17 @@ export const primitives = {
     },
     $sum: (f) => {
         return x => sum(f(x));
+    },
+    $subtract: (f) => {
+        return x => {
+            const [a, b] = f(x);
+            return a - b;
+        }
+    },
+    $multiply: (f) => {
+        return x => multiply(...f(x));
+    },
+    $filter: ({ $predicate, $collection }) => {
+        return x => filter($collection(x), v => $predicate({ ...x, value: v }));
     }
 }

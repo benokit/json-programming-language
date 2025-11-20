@@ -2,8 +2,9 @@
 import { expect } from 'chai';
 import { parse } from '../src/parser.js'
 
-function example(description, { program, cases, input, output }) {
-    it (description, () => {
+function example(description, { program, cases, input, output }, only = false) {
+    const q = only ? it.only : it;
+    q (description, () => {
         const f = parse(program);
         if (!cases) {
             cases = [{ input, output }]
@@ -161,17 +162,25 @@ describe('pure json programming language', () => {
     example ('declare function (recursive)', {
         program: {
             $let: {
-                $f: {
+                $fib: {
                     $conditional: {
-                        $if: { $gte: ['#', 3] },
-                        $then: '#',
+                        $if: { $lte: ['#', 2] },
+                        $then: 1,
                         $else: {
-                            $sum: [ '#',
+                            $sum: [
+                                {
+                                   $apply: {
+                                        $fn: '@$fib',
+                                        $to: {
+                                            $subtract: ['#', 1]
+                                        }
+                                    } 
+                                },
                                 {
                                     $apply: {
-                                        $fn: '@$f',
+                                        $fn: '@$fib',
                                         $to: {
-                                            $sum: [1, '#']
+                                            $subtract: ['#', 2]
                                         }
                                     }
                                 }
@@ -181,33 +190,53 @@ describe('pure json programming language', () => {
                 }
             },
             $apply: {
-                $fn: '@$f',
+                $fn: '@$fib',
                 $to: '$'
             }
         },
-        input: 1,
-        output: 6
+        input: 6,
+        output: 8
     });
 
     example ('map function over array', {
         program: {
-            $let: {
-                a: 1,
-                $f: {
-                    $sum: ['@a', '#']
-                }
-            },
             $map: {
                 $fn: {
-                    $apply: {
-                        $fn: '@$f',
-                        $to: '#'
-                    }
+                    $sum: ['#', '#']
                 },
                 $over: '$'
             }
         },
         input: [1, 2, 3],
-        output: [2, 3, 4]
+        output: [2, 4, 6]
+    });
+
+    example ('multiply', {
+        program: {
+            $let: {
+                $square: {
+                    $multiply: ['#', '#']
+                }
+            },
+            $apply: {
+                $fn: '@$square',
+                $to: '$'
+            }
+        },
+        input: 3,
+        output: 9
+    });
+
+    example ('filter array', {
+        program: {
+            $filter: {
+                $predicate: {
+                    $lte: ['#', 10]
+                },
+                $collection: '$'
+            }
+        },
+        input: [1, 11, 2, 12, 3, 13],
+        output: [1, 2, 3]
     });
 });
