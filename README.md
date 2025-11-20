@@ -7,6 +7,7 @@ See examples in [tests](./test/test-parser.js).
 ## Language definition
 
 Structure: JSON
+
 Elements:
 - string
 - number
