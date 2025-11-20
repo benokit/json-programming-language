@@ -24,9 +24,7 @@ export const primitives = {
         };
     },
     $negate: (f) => {
-        return x => {
-            return !f(x);
-        };
+        return x => !f(x);
     },
     $lt: (f) => {
         return x => {

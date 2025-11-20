@@ -2,113 +2,128 @@
 import { expect } from 'chai';
 import { parse } from '../src/parser.js'
 
+function example(description, { program, cases, input, output }) {
+    it (description, () => {
+        const f = parse(program);
+        if (!cases) {
+            cases = [{ input, output }]
+        }
+        for (const { input, output } of cases) {
+            expect(f(input)).to.deep.equal(output);
+        }
+    });
+}
+
 describe('pure json programming language', () => {
-    it('trivial', () => {
-        const program = {};
-        const f = parse(program);
-        expect(f()).to.deep.equal({});
+
+    example('trivial', {
+        program: {},
+        input: 'anything',
+        output: {}
     });
 
-    it ('identity function', () => {
-        const program = {
+    example('identity function', {
+        program: {
             $return: '$'
-        };
-        const f = parse(program);
-        const input = {};
-        expect(f(input)).to.equal(input);
+        },
+        input: 'something',
+        output: 'something'
     });
 
-    it ('constant function - string', () => {
-        const program = {
+    example ('constant function - string', {
+        program: {
             $return: 'test'
-        };
-        const f = parse(program);
-        expect(f()).to.equal('test');
+        },
+        input: 'anything',
+        output: 'test'
     });
 
-    it ('constant function - object', () => {
-        const program = {
+    example ('constant function - object', {
+        program: {
             $return: {
                 test: 'test'
             }
-        };
-        const f = parse(program);
-        expect(f()).to.deep.equal(program.$return);
+        },
+        input: 'anything',
+        output: {
+            test: 'test'
+        }
     });
 
-    it ('constant function - number ', () => {
-        const program = {
+    example ('constant function - number ', {
+        program: {
             $return: 1.1
-        };
-        const f = parse(program);
-        expect(f()).to.equal(1.1);
+        },
+        input: 'anything',
+        output: 1.1
     });
 
-    it ('map object to object', () => {
-        const program = {
+    example ('map object to object', {
+        program: {
             name: '$.person.name',
             age: '$.age',
             const: 1
-        };
-        const f = parse(program);
-        const input = {
+        },
+        input: {
             person: {
                 name: 'Ben'
             },
             age: 21
-        }
-        const output = f(input);
-        const expectedOutput = {
+        },
+        output: {
             name: 'Ben',
             age: 21,
             const: 1
-        };
-        expect(output).to.deep.equal(expectedOutput);
+        }
     });
 
-    it ('sum numbers', () => {
-        const program = {
+    example ('sum numbers', {
+        program: {
             $sum: '$'
-        };
-        const f = parse(program);
-        const input = [1, 2, 3];
-        expect(f(input)).to.equal(1 + 2 + 3);
+        },
+        input: [1, 2, 3],
+        output: 1 + 2 + 3
     });
 
-    it ('add constant to a number', () => {
-        const program = {
+    example ('add constant to a number', {
+        program: {
             $sum: [1, '$']
-        };
-        const f = parse(program);
-        const input = 1;
-        expect(f(input)).to.equal(1 + 1); 
+        },
+        input: 1,
+        output: 1 + 1
     });
 
-    it ('apply function', () => {
-        const program = {
+    example ('apply function', {
+        program: {
             $apply: {
                 $fn: {
                     $sum: [1, '#']
                 },
                 $to: '$'
             }
-        };
-        const f = parse(program);
-        const input = 1;
-        expect(f(input)).to.equal(1 + 1); 
+        },
+        input: 1,
+        output: 1 + 1
     });
 
-    it ('check equality', () => {
-        const program = {
+    example ('check equality', {
+        program: {
             $eq: [ '$.a', '$.b' ]
-        };
-        const f = parse(program);
-        expect(f({ a: 1, b: 2 })).to.equal(false);
-        expect(f({ a: 1, b: 1 })).to.equal(true);
+        },
+        cases: [
+            {
+                input: { a: 1, b: 2 },
+                output: false
+            },
+            {
+                input: { a: 1, b: 1 },
+                output: true
+            }
+        ]
     });
 
-    it ('conditional if-else', () => {
-        const program = {
+    example ('conditional if-else', {
+        program: {
             $conditional: {
                 $if: {
                     $eq: '$',
@@ -116,14 +131,21 @@ describe('pure json programming language', () => {
                 $then: 1,
                 $else: 0
             }
-        };
-        const f = parse(program);
-        expect(f([1, 2])).to.equal(0);
-        expect(f([1, 1])).to.equal(1);
+        },
+        cases: [
+            {
+                input: [1, 2],
+                output: 0
+            },
+            {
+                input: [1, 1],
+                output: 1
+            }
+        ]
     });
 
-    it ('declare variable', () => {
-        const program = {
+    example ('declare variable', {
+        program: {
             $let: {
                 a: '$',
                 b: {
@@ -131,13 +153,13 @@ describe('pure json programming language', () => {
                 }
             },
             $sum: [1, '@b']
-        };
-        const f = parse(program);
-        expect(f(1)).to.equal(3);
+        },
+        input: 1,
+        output: 3
     });
 
-    it ('declare function (recursive)', () => {
-        const program = {
+    example ('declare function (recursive)', {
+        program: {
             $let: {
                 $f: {
                     $conditional: {
@@ -162,13 +184,13 @@ describe('pure json programming language', () => {
                 $fn: '@$f',
                 $to: '$'
             }
-        };
-        const f = parse(program);
-        expect(f(1)).to.equal(6);
+        },
+        input: 1,
+        output: 6
     });
 
-    it ('map function over array', () => {
-        const program = {
+    example ('map function over array', {
+        program: {
             $let: {
                 a: 1,
                 $f: {
@@ -184,9 +206,8 @@ describe('pure json programming language', () => {
                 },
                 $over: '$'
             }
-        };
-        const f = parse(program);
-        const input = [1, 2, 3];
-        expect(f(input)).to.deep.equal([2, 3, 4]); 
+        },
+        input: [1, 2, 3],
+        output: [2, 3, 4]
     });
 });

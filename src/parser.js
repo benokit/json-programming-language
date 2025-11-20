@@ -5,74 +5,59 @@ export {
     parse
 }
 
-function parse(program) {
-    const f = parseTree(program);
+function parse(program, extendedPrimitives = {}) {
+    const f = parseTree({ ...primitives, ...extendedPrimitives }, program);
     return input => f({input});
 }
 
-function parseTree(tree) {
-    if (isString(tree)) {
-        return parseString(tree);
-    }
+function parseTree(primitives, tree) {
+    if (isString(tree)) { return parseString(tree); }
 
-    if (isArray(tree)) {
-       return parseArray(tree) 
-    }
+    if (isArray(tree)) { return parseArray(primitives, tree) }
 
     if (isObject(tree)) {
-        if (isPrimitive(tree)) {
-            return parsePrimitive(tree);
-        }
-        return parseObject(tree);
+        return hasPrimitiveProperties(tree) ? parsePrimitive(primitives, tree) : parseObject(primitives, tree);
     }
 
     return () => tree;
 }
 
-function isPrimitive(tree) {
+function parsePrimitive(primitives, tree) {
     const params = Object.keys(tree);
-    return params.length <=2 && !!primitives[params[0]];
-}
-
-function parsePrimitive(tree) {
-    const params = Object.keys(tree);
-    const getLocals = parseObject(tree['$let']);
+    const getLocalVars = parseVars(primitives, tree['$let']);
     const keyOfPrimitive = find(params, b => b !== '$let');
-    const f = primitives[keyOfPrimitive](parsePrimitiveArgs(tree[keyOfPrimitive]));
+    const f = primitives[keyOfPrimitive](parsePrimitiveArgs(primitives, tree[keyOfPrimitive]));
     return ({ vars, input, value }) => {
-        const extendedVars = { ...vars, ...getLocals({ vars, input, value }) };
+        const extendedVars = { ...vars, ...getLocalVars({ vars, input, value }) };
         return f({ vars: extendedVars, input, value });
     }
 }
 
-function parsePrimitiveArgs(tree) {
-    if (isString(tree)) {
-        return parseString(tree);
-    }
+function parsePrimitiveArgs(primitives, tree) {
+    if (isString(tree)) { return parseString(tree); }
 
-    if (isArray(tree)) {
-       return parseArray(tree) 
-    }
+    if (isArray(tree)) { return parseArray(primitives, tree) }
 
     if (isObject(tree)) {
-        if (Object.keys(tree)[0]?.startsWith('$')) {
-            return mapValues(tree, parseTree);
-        }
-        return parseObject(tree);
+        return hasPrimitiveProperties(tree) ? mapValues(tree, n => parseTree(primitives, n)) : parseObject(primitives, tree);
     }
 
     return () => tree;
 }
 
-function parseArray(tree) {
-    const funks = map(tree, parseTree);
+function hasPrimitiveProperties(tree) {
+    return Object.keys(tree)[0]?.startsWith('$'); 
+}
+
+function parseArray(primitives, tree) {
+    const funks = map(tree, n => parseTree(primitives, n), primitives);
     return x => {
         return map(funks, f => f(x));
     }
 }
 
-function parseObject(obj) {
-    const funks = mapValues(obj, parseTree);
+function parseVars(primitives, obj) {
+    const funks = mapValues(obj, n => parseTree(primitives, n));
     return ({vars, input, value}) => {
         const result = {};
         const extendedVars = { ...vars };
@@ -84,6 +69,11 @@ function parseObject(obj) {
         }
         return result;
     }
+}
+
+function parseObject(primitives, obj) {
+    const funks = mapValues(obj, n => parseTree(primitives, n));
+    return x => mapValues(funks, funk => funk(x));
 }
 
 function parseString(tree) {
