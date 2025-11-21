@@ -1,4 +1,4 @@
-import { isObject, isString, map, get, find, mapValues, isArray } from 'lodash-es'
+import { isObject, isString, map, get, find, mapValues, isArray, every } from 'lodash-es'
 import { primitives } from './primitives.js';
 
 export {
@@ -16,7 +16,8 @@ function parseTree(primitives, tree) {
     if (isArray(tree)) { return parseArray(primitives, tree) }
 
     if (isObject(tree)) {
-        return hasPrimitiveProperties(tree) ? parsePrimitive(primitives, tree) : parseObject(primitives, tree);
+        return isPrimitive(primitives, tree) ? parsePrimitive(primitives, tree) : 
+            has$Properties(tree) ? parseFunction(primitives, tree) :  parseObject(primitives, tree);
     }
 
     return () => tree;
@@ -27,9 +28,21 @@ function parsePrimitive(primitives, tree) {
     const getLocalVars = parseVars(primitives, tree['$let']);
     const keyOfPrimitive = find(params, b => b !== '$let');
     const f = primitives[keyOfPrimitive](parsePrimitiveArgs(primitives, tree[keyOfPrimitive]));
-    return ({ vars, input, value }) => {
-        const extendedVars = { ...vars, ...getLocalVars({ vars, input, value }) };
-        return f({ vars: extendedVars, input, value });
+    return ({ vars, input }) => {
+        const extendedVars = { ...vars, ...getLocalVars({ vars, input }) };
+        return f({ vars: extendedVars, input });
+    }
+}
+
+function parseFunction(primitives, tree) {
+    const params = Object.keys(tree);
+    const getLocalVars = parseVars(primitives, tree['$let']);
+    const keyOfFunction = find(params, b => b !== '$let');
+    const arg = parseTree(primitives, tree[keyOfFunction]); 
+    return ({ vars, input }) => {
+        const extendedVars = { ...vars, ...getLocalVars({ vars, input }) };
+        const f = extendedVars[keyOfFunction];
+        return f({ vars: extendedVars, input: arg({ vars: extendedVars, input })});
     }
 }
 
@@ -39,13 +52,18 @@ function parsePrimitiveArgs(primitives, tree) {
     if (isArray(tree)) { return parseArray(primitives, tree) }
 
     if (isObject(tree)) {
-        return hasPrimitiveProperties(tree) ? mapValues(tree, n => parseTree(primitives, n)) : parseObject(primitives, tree);
+        return has$Properties(tree) ? mapValues(tree, n => parseTree(primitives, n)) : parseObject(primitives, tree);
     }
 
     return () => tree;
 }
 
-function hasPrimitiveProperties(tree) {
+function isPrimitive(primitives, tree) {
+    const ks = Object.keys(tree); 
+    return ks.length > 0 && every(ks, k => !!primitives[k]);
+}
+
+function has$Properties(tree) {
     return Object.keys(tree)[0]?.startsWith('$'); 
 }
 
@@ -58,13 +76,13 @@ function parseArray(primitives, tree) {
 
 function parseVars(primitives, obj) {
     const funks = mapValues(obj, n => parseTree(primitives, n));
-    return ({vars, input, value}) => {
+    return ({vars, input}) => {
         const result = {};
         const extendedVars = { ...vars };
         for (const key in funks) {
             result[key] = key.startsWith('$')
                 ? funks[key]
-                : funks[key]({ vars: extendedVars, input, value });
+                : funks[key]({ vars: extendedVars, input });
             extendedVars[key] = result[key];
         }
         return result;
@@ -78,24 +96,14 @@ function parseObject(primitives, obj) {
 
 function parseString(tree) {
     if (tree === '#') {
-        return ({ value }) => value;
-    }
-    if (tree.startsWith('#.')) {
-        const pointer = tree.slice(2);
-        return ({ value }) => get(value, pointer);
-    }
-    if (tree === '$') {
         return ({ input }) => input;
     }
-    if (tree.startsWith('$.')) {
+    if (tree.startsWith('#.')) {
         const pointer = tree.slice(2);
         return ({ input }) => get(input, pointer);
     }
     if (tree.startsWith('@')) {
         const pointer = tree.slice(1);
-        if (pointer.startsWith('$')) {
-            return x => x.vars[pointer](x);
-        }
         return ({ vars }) => get(vars, pointer);
     }
     return () => tree;

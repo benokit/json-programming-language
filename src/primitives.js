@@ -1,12 +1,14 @@
 import { filter, map, multiply, sum } from 'lodash-es'
 
+const input = ({ input }) => input
+
 export const primitives = {
     $let: true,
     $return: (f) => {
         return x => f(x);
     },
-    $apply: ({ $fn, $to }) => {
-        return x => $fn({ ...x, value: $to(x)});
+    $apply: ({ $fn, $to = input }) => {
+        return x => $fn({ ...x, input: $to(x)});
     },
     $conditional: ({ $if, $then, $else }) => {
         return x => $if(x) ? $then(x) : $else(x);
@@ -50,8 +52,8 @@ export const primitives = {
             return a >= b;
         };
     },
-    $map: ({ $fn, $over }) => {
-        return x => map($over(x), v => $fn({ ...x, value: v }));
+    $map: ({ $fn, $over = input }) => {
+        return x => map($over(x), v => $fn({ ...x, input: v }));
     },
     $sum: (f) => {
         return x => sum(f(x));
@@ -65,7 +67,7 @@ export const primitives = {
     $multiply: (f) => {
         return x => multiply(...f(x));
     },
-    $filter: ({ $predicate, $collection }) => {
-        return x => filter($collection(x), v => $predicate({ ...x, value: v }));
+    $filter: ({ $predicate, $collection = input }) => {
+        return x => filter($collection(x), v => $predicate({ ...x, input: v }));
     }
 }

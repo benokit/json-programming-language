@@ -24,12 +24,11 @@ Semantics:
     - property name with a trailing `$` (e.g. `$sum`, `$return`) 
         - must correspond to a primitive function or its arguments, check [here](./src/primitives.js)
         - or to a local function definition in the `$let` object
-    - special property `$let` is reserved for local variables declaration and should be placed in a node together with another primitive function.
+    - special property `$let` is reserved for local variables declaration and should be placed in a node together with a reference to a function.
 - values:
     - string
-        - trailing `$` is a reference to the global function input, the following substring should be a pointer to a value in the input object (e.g. `$.`)
-        - trailing `@` is a reference to locally declared variables and functions in a `$let` object, the following substring should correspond to a pointer to a variable and further with a pointer to a value in the property object (e.g. `@address.street.number`)
-        - trailing `#` corresponds to a value passed to a primitive function in a node of the execution tree, the following substring should correspond to a value in the value object (e.g. `#.name`)
+        - trailing `@` signals a reference to locally declared variables in a `$let` block, the following substring should correspond to a name of a variable and further to a pointer to a value in an object variable (e.g. `@address.street.number`)
+        - trailing `#` corresponds to an input to a function in each node of the execution tree, the following substring should correspond to a value pointer in an input object (e.g. `#.name`)
         - otherwise string is interpreted as a literal value
     - number
         - is interpreted as a literal value

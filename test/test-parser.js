@@ -25,7 +25,7 @@ describe('pure json programming language', () => {
 
     example('identity function', {
         program: {
-            $return: '$'
+            $return: '#'
         },
         input: 'something',
         output: 'something'
@@ -61,8 +61,8 @@ describe('pure json programming language', () => {
 
     example ('map object to object', {
         program: {
-            name: '$.person.name',
-            age: '$.age',
+            name: '#.person.name',
+            age: '#.age',
             const: 1
         },
         input: {
@@ -80,7 +80,7 @@ describe('pure json programming language', () => {
 
     example ('sum numbers', {
         program: {
-            $sum: '$'
+            $sum: '#'
         },
         input: [1, 2, 3],
         output: 1 + 2 + 3
@@ -88,7 +88,7 @@ describe('pure json programming language', () => {
 
     example ('add constant to a number', {
         program: {
-            $sum: [1, '$']
+            $sum: [1, '#']
         },
         input: 1,
         output: 1 + 1
@@ -100,7 +100,7 @@ describe('pure json programming language', () => {
                 $fn: {
                     $sum: [1, '#']
                 },
-                $to: '$'
+                $to: '#'
             }
         },
         input: 1,
@@ -109,7 +109,7 @@ describe('pure json programming language', () => {
 
     example ('check equality', {
         program: {
-            $eq: [ '$.a', '$.b' ]
+            $eq: [ '#.a', '#.b' ]
         },
         cases: [
             {
@@ -127,7 +127,7 @@ describe('pure json programming language', () => {
         program: {
             $conditional: {
                 $if: {
-                    $eq: '$',
+                    $eq: '#',
                 },
                 $then: 1,
                 $else: 0
@@ -148,7 +148,7 @@ describe('pure json programming language', () => {
     example ('declare variable', {
         program: {
             $let: {
-                a: '$',
+                a: '#',
                 b: {
                     $sum: ['@a', '@a']
                 }
@@ -169,30 +169,21 @@ describe('pure json programming language', () => {
                         $else: {
                             $sum: [
                                 {
-                                   $apply: {
-                                        $fn: '@$fib',
-                                        $to: {
-                                            $subtract: ['#', 1]
-                                        }
+                                    $fib: {
+                                        $subtract: ['#', 1]
                                     } 
                                 },
                                 {
-                                    $apply: {
-                                        $fn: '@$fib',
-                                        $to: {
-                                            $subtract: ['#', 2]
-                                        }
-                                    }
+                                    $fib: {
+                                        $subtract: ['#', 2]
+                                    } 
                                 }
                             ]
                         }
                     }
                 }
             },
-            $apply: {
-                $fn: '@$fib',
-                $to: '$'
-            }
+            $fib: '#'
         },
         input: 6,
         output: 8
@@ -204,7 +195,7 @@ describe('pure json programming language', () => {
                 $fn: {
                     $sum: ['#', '#']
                 },
-                $over: '$'
+                $over: '#'
             }
         },
         input: [1, 2, 3],
@@ -218,10 +209,7 @@ describe('pure json programming language', () => {
                     $multiply: ['#', '#']
                 }
             },
-            $apply: {
-                $fn: '@$square',
-                $to: '$'
-            }
+            $square: '#'
         },
         input: 3,
         output: 9
@@ -233,7 +221,7 @@ describe('pure json programming language', () => {
                 $predicate: {
                     $lte: ['#', 10]
                 },
-                $collection: '$'
+                $collection: '#'
             }
         },
         input: [1, 11, 2, 12, 3, 13],
