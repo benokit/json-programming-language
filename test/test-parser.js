@@ -227,4 +227,61 @@ describe('pure json programming language', () => {
         input: [1, 11, 2, 12, 3, 13],
         output: [1, 2, 3]
     });
+
+    example ('take elements from an array', {
+        program: {
+            $take: {
+                $while: {
+                    $lte: ['#', 5]
+                },
+                $count: 5,
+                $collection: '#'
+            }
+        },
+        cases: [
+            {
+                input: [1, 3, 2, 4, 1, 1, 5, 13, 12],
+                output: [1, 3, 2, 4, 1]
+            },
+            {
+                input: [1, 3, 2, 14, 1, 1, 5, 13, 12],
+                output: [1, 3, 2]
+            }
+        ]
+    });
+
+    example ('zip', {
+        program: {
+            $zip: {
+                $sequences: ['#', '#']
+            }
+        },
+        input: [1, 3, 2],
+        output: [[1, 1], [3, 3], [2, 2]]
+    }); 
+
+    example ('zip with', {
+        program: {
+            $zip: {
+                $with: { $multiply: ['#0', '#1'] },
+                $sequences: ['#', '#']
+            }
+        },
+        input: [1, 3, 2],
+        output: [1, 9, 4]
+    }); 
+
+    example ('pipeline with $let', {
+        program: {
+            $let: {
+                a0: '#',
+                a1: { $sum: [ '@a0', 1 ] },
+                a2: { $multiply: [ '@a1', 2 ] },
+                a3: { $subtract: [ '@a2', 4 ] },
+            },
+            $return: '@a3'
+        },
+        input: 2,
+        output: 2
+    });
 });

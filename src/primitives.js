@@ -1,4 +1,4 @@
-import { filter, map, multiply, sum } from 'lodash-es'
+import { filter, first, identity, map, multiply, sum, tail, take, takeWhile, zipWith } from 'lodash-es'
 
 const input = ({ input }) => input
 
@@ -69,5 +69,26 @@ export const primitives = {
     },
     $filter: ({ $predicate, $collection = input }) => {
         return x => filter($collection(x), v => $predicate({ ...x, input: v }));
+    },
+    $head: (f) => {
+        return x => first(f(x));
+    },
+    $tail: (f) => {
+        return x => tail(f(x));
+    },
+    $take: ({ $while, $count, $from = input }) => {
+        return x => {
+            let y = $from(x);
+            y = $while ? takeWhile(y, v => $while({ ...x, input: v })) : y
+            y = $count ? take(y, $count(x)) : y
+            return y;
+        }
+    },
+    $zip: ({ $with, $sequences }) => {
+        return x => {
+            const combinator = $with ? v => $with({...x, input: v}) : identity;
+            const [as, bs] = $sequences(x);
+            return zipWith(as, bs, (a, b) => combinator([a, b]));
+        }
     }
 }

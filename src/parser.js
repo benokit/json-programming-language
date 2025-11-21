@@ -94,17 +94,20 @@ function parseObject(primitives, obj) {
     return x => mapValues(funks, funk => funk(x));
 }
 
-function parseString(tree) {
-    if (tree === '#') {
+function parseString(str) {
+    if (str === '#') {
         return ({ input }) => input;
     }
-    if (tree.startsWith('#.')) {
-        const pointer = tree.slice(2);
+    if (str.startsWith('#')) {
+        str = str.slice(1);
+        str = /^\d/.test(str) ? `[${str[0]}]` + str.slice(1) : str;
+        str = str.startsWith('.') ? str.slice(1) : str; 
+        const pointer = str;
         return ({ input }) => get(input, pointer);
     }
-    if (tree.startsWith('@')) {
-        const pointer = tree.slice(1);
+    if (str.startsWith('@')) {
+        const pointer = str.slice(1);
         return ({ vars }) => get(vars, pointer);
     }
-    return () => tree;
+    return () => str;
 }
