@@ -97,10 +97,10 @@ describe('pure json programming language', () => {
     example ('apply function', {
         program: {
             $apply: {
-                $fn: {
+                _fn: {
                     $sum: [1, '#']
                 },
-                $to: '#'
+                _to: '#'
             }
         },
         input: 1,
@@ -126,11 +126,11 @@ describe('pure json programming language', () => {
     example ('conditional if-else', {
         program: {
             $conditional: {
-                $if: {
+                _if: {
                     $eq: '#',
                 },
-                $then: 1,
-                $else: 0
+                _then: 1,
+                _else: 0
             }
         },
         cases: [
@@ -164,9 +164,9 @@ describe('pure json programming language', () => {
             $let: {
                 $fib: {
                     $conditional: {
-                        $if: { $lte: ['#', 2] },
-                        $then: 1,
-                        $else: {
+                        _if: { $lte: ['#', 2] },
+                        _then: 1,
+                        _else: {
                             $sum: [
                                 {
                                     $fib: {
@@ -192,10 +192,10 @@ describe('pure json programming language', () => {
     example ('map function over array', {
         program: {
             $map: {
-                $fn: {
+                _fn: {
                     $sum: ['#', '#']
                 },
-                $over: '#'
+                _over: '#'
             }
         },
         input: [1, 2, 3],
@@ -218,10 +218,10 @@ describe('pure json programming language', () => {
     example ('filter array', {
         program: {
             $filter: {
-                $predicate: {
+                _predicate: {
                     $lte: ['#', 10]
                 },
-                $collection: '#'
+                _collection: '#'
             }
         },
         input: [1, 11, 2, 12, 3, 13],
@@ -231,11 +231,11 @@ describe('pure json programming language', () => {
     example ('take elements from an array', {
         program: {
             $take: {
-                $while: {
+                _while: {
                     $lte: ['#', 5]
                 },
-                $count: 5,
-                $collection: '#'
+                _count: 5,
+                _collection: '#'
             }
         },
         cases: [
@@ -253,7 +253,7 @@ describe('pure json programming language', () => {
     example ('zip', {
         program: {
             $zip: {
-                $sequences: ['#', '#']
+                _sequences: ['#', '#']
             }
         },
         input: [1, 3, 2],
@@ -263,8 +263,8 @@ describe('pure json programming language', () => {
     example ('zip with', {
         program: {
             $zip: {
-                $with: { $multiply: ['#0', '#1'] },
-                $sequences: ['#', '#']
+                _with: { $multiply: ['#0', '#1'] },
+                _sequences: ['#', '#']
             }
         },
         input: [1, 3, 2],
@@ -280,6 +280,43 @@ describe('pure json programming language', () => {
                 a3: { $subtract: [ '@a2', 4 ] },
             },
             $return: '@a3'
+        },
+        input: 2,
+        output: 2
+    });
+
+    example ('nested function', {
+        program: {
+            $negate: {
+                $negate: '#'
+            }
+        },
+        input: true,
+        output: true
+    });
+
+     example ('nested declared function', {
+        program: {
+            $let: {
+                $addOne: { $sum: ['#', 1] },
+            },
+            $addOne: {
+                $addOne: '#'
+            }
+        },
+        input: 1,
+        output: 3
+    });
+
+    example ('pipeline (use of anonymous functions (lambda))', {
+        program: {
+            $pipeline: {
+                _sequence: [
+                    { $: { $sum: ['#', 1] }},
+                    { $: { $multiply: ['#', 2] }},
+                    { $: { $subtract: ['#', 4] }}
+                ]
+            }
         },
         input: 2,
         output: 2

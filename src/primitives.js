@@ -1,17 +1,23 @@
-import { filter, first, identity, map, multiply, sum, tail, take, takeWhile, zipWith } from 'lodash-es'
+import { filter, first, identity, map, multiply, reduce, sum, tail, take, takeWhile, zipWith } from 'lodash-es'
 
 const input = ({ input }) => input
 
 export const primitives = {
     $let: true,
+    $: (f) => {
+        return x => v => f({ ...x, input: v})
+    },
+    $in: (f) => {
+        return x => f(x);
+    },
     $return: (f) => {
         return x => f(x);
     },
-    $apply: ({ $fn, $to = input }) => {
-        return x => $fn({ ...x, input: $to(x)});
+    $apply: ({ _fn, _to = input }) => {
+        return x => _fn({ ...x, input: _to(x)});
     },
-    $conditional: ({ $if, $then, $else }) => {
-        return x => $if(x) ? $then(x) : $else(x);
+    $conditional: ({ _if, _then, _else }) => {
+        return x => _if(x) ? _then(x) : _else(x);
     },
     $eq: (f) => {
         return x => {
@@ -52,8 +58,8 @@ export const primitives = {
             return a >= b;
         };
     },
-    $map: ({ $fn, $over = input }) => {
-        return x => map($over(x), v => $fn({ ...x, input: v }));
+    $map: ({ _fn, _over = input }) => {
+        return x => map(_over(x), v => _fn({ ...x, input: v }));
     },
     $sum: (f) => {
         return x => sum(f(x));
@@ -67,8 +73,8 @@ export const primitives = {
     $multiply: (f) => {
         return x => multiply(...f(x));
     },
-    $filter: ({ $predicate, $collection = input }) => {
-        return x => filter($collection(x), v => $predicate({ ...x, input: v }));
+    $filter: ({ _predicate, _collection = input }) => {
+        return x => filter(_collection(x), v => _predicate({ ...x, input: v }));
     },
     $head: (f) => {
         return x => first(f(x));
@@ -76,19 +82,24 @@ export const primitives = {
     $tail: (f) => {
         return x => tail(f(x));
     },
-    $take: ({ $while, $count, $from = input }) => {
+    $take: ({ _while, _count, _from = input }) => {
         return x => {
-            let y = $from(x);
-            y = $while ? takeWhile(y, v => $while({ ...x, input: v })) : y
-            y = $count ? take(y, $count(x)) : y
+            let y = _from(x);
+            y = _while ? takeWhile(y, v => _while({ ...x, input: v })) : y
+            y = _count ? take(y, _count(x)) : y
             return y;
         }
     },
-    $zip: ({ $with, $sequences }) => {
+    $zip: ({ _with, _sequences = input }) => {
         return x => {
-            const combinator = $with ? v => $with({...x, input: v}) : identity;
-            const [as, bs] = $sequences(x);
+            const combinator = _with ? v => _with({...x, input: v}) : identity;
+            const [as, bs] = _sequences(x);
             return zipWith(as, bs, (a, b) => combinator([a, b]));
+        }
+    },
+    $pipeline: ({ _sequence, _input = input }) => {
+        return x => {
+            return reduce(_sequence(x), (a, f) => f(a), _input(x));
         }
     }
 }

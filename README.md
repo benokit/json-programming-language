@@ -14,17 +14,22 @@ Elements:
 - boolean
 - array
 - object
-- variables declaration
-- functions declaration
+- variable declaration
+- function declaration
 - primitive functions
+- anonymous functions
+- recursion
+- closure
 
 Semantics:
+
 - program is a direct representation of an execution tree
 - properties:
-    - property name with a trailing `$` (e.g. `$sum`, `$return`) 
-        - must correspond to a primitive function or its arguments, check [here](./src/primitives.js)
-        - or to a local function definition in the `$let` object
-    - special property `$let` is reserved for local variables declaration and should be placed in a node together with a reference to a function.
+    - property name with trailing `$` (e.g. `$sum`, `$return`) 
+        - must correspond to a primitive function, check [here](./src/primitives.js)
+        - or to a declared function in a preceding `$let` block
+    - special property `$let` is reserved for local variables declaration and should always be placed in a node together with a function
+    - property name with trailing `_` (e.g. `_with`) must correspond to a property of the preceding primitive function 
 - values:
     - string
         - trailing `@` signals a reference to locally declared variables in a `$let` block, the following substring should correspond to a name of a variable and further to a pointer to a value in an object variable (e.g. `@address.street.number`)

@@ -17,7 +17,7 @@ function parseTree(primitives, tree) {
 
     if (isObject(tree)) {
         return isPrimitive(primitives, tree) ? parsePrimitive(primitives, tree) : 
-            has$Properties(tree) ? parseFunction(primitives, tree) :  parseObject(primitives, tree);
+            isFunction(tree) ? parseFunction(primitives, tree) :  parseObject(primitives, tree);
     }
 
     return () => tree;
@@ -52,7 +52,7 @@ function parsePrimitiveArgs(primitives, tree) {
     if (isArray(tree)) { return parseArray(primitives, tree) }
 
     if (isObject(tree)) {
-        return has$Properties(tree) ? mapValues(tree, n => parseTree(primitives, n)) : parseObject(primitives, tree);
+        return hasPrimitiveProperties(tree) ? mapValues(tree, n => parseTree(primitives, n)) : parseTree(primitives, tree);
     }
 
     return () => tree;
@@ -63,8 +63,12 @@ function isPrimitive(primitives, tree) {
     return ks.length > 0 && every(ks, k => !!primitives[k]);
 }
 
-function has$Properties(tree) {
+function isFunction(tree) {
     return Object.keys(tree)[0]?.startsWith('$'); 
+}
+
+function hasPrimitiveProperties(tree) {
+    return Object.keys(tree)[0]?.startsWith('_'); 
 }
 
 function parseArray(primitives, tree) {
