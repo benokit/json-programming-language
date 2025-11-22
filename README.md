@@ -33,7 +33,7 @@ Semantics:
 - values:
     - string
         - trailing `@` signals a reference to locally declared variables in a `$let` block, the following substring should correspond to a name of a variable and further to a pointer to a value in an object variable (e.g. `@address.street.number`)
-        - trailing `#` corresponds to an input to a function in each node of the execution tree, the following substring should correspond to a value pointer in an input object (e.g. `#.name`)
+        - trailing `#` corresponds to an input to a function in each node of the execution tree, the following substring should correspond to a value pointer in an input object (e.g. `#.name`). If input is an array, the elements of the array can be accessed by index up from 0 to max 9 by appending the index to `#` (e.g. for the first element in the input array `#0.name`). 
         - otherwise string is interpreted as a literal value
     - number
         - is interpreted as a literal value

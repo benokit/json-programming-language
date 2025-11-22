@@ -23,11 +23,13 @@ function parseTree(primitives, tree) {
     return () => tree;
 }
 
+const varsDeclarationKey = '$let';
+
 function parsePrimitive(primitives, tree) {
-    const params = Object.keys(tree);
-    const getLocalVars = parseVars(primitives, tree['$let']);
-    const keyOfPrimitive = find(params, b => b !== '$let');
-    const f = primitives[keyOfPrimitive](parsePrimitiveArgs(primitives, tree[keyOfPrimitive]));
+    const keys = Object.keys(tree);
+    const getLocalVars = parseVars(primitives, tree[varsDeclarationKey]);
+    const primitiveKey = find(keys, k => k !== varsDeclarationKey);
+    const f = primitives[primitiveKey](parsePrimitiveArgs(primitives, tree[primitiveKey]));
     return ({ vars, input }) => {
         const extendedVars = { ...vars, ...getLocalVars({ vars, input }) };
         return f({ vars: extendedVars, input });
@@ -35,13 +37,13 @@ function parsePrimitive(primitives, tree) {
 }
 
 function parseFunction(primitives, tree) {
-    const params = Object.keys(tree);
-    const getLocalVars = parseVars(primitives, tree['$let']);
-    const keyOfFunction = find(params, b => b !== '$let');
-    const arg = parseTree(primitives, tree[keyOfFunction]); 
+    const keys = Object.keys(tree);
+    const getLocalVars = parseVars(primitives, tree[varsDeclarationKey]);
+    const functionKey = find(keys, k => k !== varsDeclarationKey);
+    const arg = parseTree(primitives, tree[functionKey]); 
     return ({ vars, input }) => {
         const extendedVars = { ...vars, ...getLocalVars({ vars, input }) };
-        const f = extendedVars[keyOfFunction];
+        const f = extendedVars[functionKey];
         return f({ vars: extendedVars, input: arg({ vars: extendedVars, input })});
     }
 }
@@ -60,11 +62,12 @@ function parsePrimitiveArgs(primitives, tree) {
 
 function isPrimitive(primitives, tree) {
     const ks = Object.keys(tree); 
-    return ks.length > 0 && every(ks, k => !!primitives[k]);
+    return ks.length > 0 && ks.length <= 2 && every(ks, k => !!primitives[k]);
 }
 
 function isFunction(tree) {
-    return Object.keys(tree)[0]?.startsWith('$'); 
+    const ks = Object.keys(tree); 
+    return ks.length > 0 && ks.length <= 2 && every(ks, k => k.startsWith('$')); 
 }
 
 function hasPrimitiveProperties(tree) {
@@ -73,23 +76,21 @@ function hasPrimitiveProperties(tree) {
 
 function parseArray(primitives, tree) {
     const funks = map(tree, n => parseTree(primitives, n), primitives);
-    return x => {
-        return map(funks, f => f(x));
-    }
+    return x => map(funks, f => f(x));
 }
 
 function parseVars(primitives, obj) {
     const funks = mapValues(obj, n => parseTree(primitives, n));
     return ({vars, input}) => {
-        const result = {};
+        const localVars = {};
         const extendedVars = { ...vars };
         for (const key in funks) {
-            result[key] = key.startsWith('$')
+            localVars[key] = key.startsWith('$')
                 ? funks[key]
                 : funks[key]({ vars: extendedVars, input });
-            extendedVars[key] = result[key];
+            extendedVars[key] = localVars[key];
         }
-        return result;
+        return localVars;
     }
 }
 

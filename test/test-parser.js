@@ -295,7 +295,7 @@ describe('pure json programming language', () => {
         output: true
     });
 
-     example ('nested declared function', {
+    example ('nested declared function', {
         program: {
             $let: {
                 $addOne: { $sum: ['#', 1] },
@@ -318,7 +318,53 @@ describe('pure json programming language', () => {
                 ]
             }
         },
-        input: 2,
-        output: 2
+        cases: [
+            {
+                input: 2,
+                output: 2
+            },
+            {
+                input: 3,
+                output: 4
+            }
+        ]
+    });
+
+    example ('fold (reduce)', {
+        program: {
+            $fold: {
+                _with: {
+                    $sum: ['#0', '#1']
+                }
+            }
+        },
+        input: [1, 2, 3],
+        output: 6
+    });
+
+    example ('fold (reduce) with initial value', {
+        program: {
+            $fold: {
+                _with: {
+                    $sum: ['#0', '#1']
+                },
+                _init: -6
+            }
+        },
+        input: [1, 2, 3],
+        output: 0
+    });
+
+    example ('group by', {
+        program: {
+            $group: {
+                _by: '#.country'
+            }
+        },
+        input: [{ name: 'a', country: 'x' }, { name: 'b', country: 'y'}, { name: 'c', country: 'x' }],
+        output: {
+            'x': [{ name: 'a', country: 'x' }, { name: 'c', country: 'x' }],
+            'y': [ { name: 'b', country: 'y'} ]
+        }
     });
 });

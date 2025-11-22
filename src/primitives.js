@@ -1,4 +1,4 @@
-import { filter, first, identity, map, multiply, reduce, sum, tail, take, takeWhile, zipWith } from 'lodash-es'
+import { filter, first, groupBy, map, multiply, reduce, sum, tail, take, takeWhile, zipWith } from 'lodash-es'
 
 const input = ({ input }) => input
 
@@ -91,15 +91,24 @@ export const primitives = {
         }
     },
     $zip: ({ _with, _sequences = input }) => {
+        const combinator = _with ? (x, v) => _with({...x, input: v}) : (x, v) => v;
         return x => {
-            const combinator = _with ? v => _with({...x, input: v}) : identity;
             const [as, bs] = _sequences(x);
-            return zipWith(as, bs, (a, b) => combinator([a, b]));
+            return zipWith(as, bs, (a, b) => combinator(x, [a, b]));
         }
     },
     $pipeline: ({ _sequence, _input = input }) => {
         return x => {
             return reduce(_sequence(x), (a, f) => f(a), _input(x));
         }
+    },
+    $fold: ({ _with, _init, _collection = input })  => {
+        const aggregator = (x, v) => _with({...x, input: v});
+        return _init
+            ? x => reduce(_collection(x), (a, v) => aggregator(x, [a, v]), _init(x))
+            : x => reduce(_collection(x), (a, v) => aggregator(x, [a, v]));
+    },
+    $group: ({ _by, _collection = input }) => {
+        return x => groupBy(_collection(x), v => _by({...x, input: v}));
     }
 }
