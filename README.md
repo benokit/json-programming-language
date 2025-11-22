@@ -1,8 +1,8 @@
-# json-programming-language
+# LambdaJSON
 
 A pure, JSON-based programming language for safe transport and evaluation across system boundaries. Programs serialize as data and compile to deterministic JavaScript functions, making them ideal for HTTP communication, remote execution, and server-driven logic. This enables backends to ship executable rules, define dynamic workflows, and persist logic without exposing arbitrary code or inventing custom DSLs.
 
-See examples in [tests](./test/test-parser.js).
+See examples in [tests](./test/test-js-compiler.js).
 
 ## Language definition
 
@@ -23,7 +23,7 @@ Elements:
 
 Semantics:
 
-- program is a direct representation of an execution tree
+- program is a direct representation of an execution tree as JSON
 - properties:
     - property name with trailing `$` (e.g. `$sum`, `$return`) 
         - must correspond to a primitive function, check [here](./src/primitives.js)
@@ -43,14 +43,13 @@ Semantics:
         - if properties correspond to primitive tokens, i.e. starting with `$`, the corresponding primitive function is executed
         - otherwise each property is evaluated separately and an evaluated object with the same properties is returned
 
-## JS parser
+## JS compiler
 
-Parser (implementation [see](./src/parser.js)):
-- converts a program (js object (parsed JSON)) into an executable function
+- [source](./src/js-compiler.js)
+- converts a program (js object (parsed JSON)) into an executable js function
 - inputs
-    - program (js object)
-    - primitives (js object)
-        - custom primitive functions that could be used in a program
-        - optional
+    - program (object)
+    - primitives (object - optional)
+        - custom primitive functions that could be referenced in a program
 
 For how to declare a custom primitive function [see](./src/primitives.js).

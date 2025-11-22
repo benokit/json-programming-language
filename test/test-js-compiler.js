@@ -1,11 +1,11 @@
 
 import { expect } from 'chai';
-import { parse } from '../src/parser.js'
+import { compile } from '../src/js-compiler.js'
 
 function example(description, { program, cases, input, output }, only = false) {
     const q = only ? it.only : it;
     q (description, () => {
-        const f = parse(program);
+        const f = compile(program);
         if (!cases) {
             cases = [{ input, output }]
         }

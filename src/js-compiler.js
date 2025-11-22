@@ -2,22 +2,28 @@ import { isObject, isString, map, get, find, mapValues, isArray, every } from 'l
 import { primitives } from './primitives.js';
 
 export {
-    parse
+    compile
 }
 
-function parse(program, extendedPrimitives = {}) {
-    const f = parseTree({ ...primitives, ...extendedPrimitives }, program);
+/**
+ * Converts program written in pure json  
+ * @param {object} program 
+ * @param {object} extendedPrimitives 
+ * @returns {function}
+ */
+function compile(program, extendedPrimitives = {}) {
+    const f = compileTree({ ...primitives, ...extendedPrimitives }, program);
     return input => f({input});
 }
 
-function parseTree(primitives, tree) {
-    if (isString(tree)) { return parseString(tree); }
+function compileTree(primitives, tree) {
+    if (isString(tree)) { return compileString(tree); }
 
-    if (isArray(tree)) { return parseArray(primitives, tree) }
+    if (isArray(tree)) { return compileArray(primitives, tree) }
 
     if (isObject(tree)) {
-        return isPrimitive(primitives, tree) ? parsePrimitive(primitives, tree) : 
-            isFunction(tree) ? parseFunction(primitives, tree) :  parseObject(primitives, tree);
+        return isPrimitive(primitives, tree) ? compilePrimitive(primitives, tree) : 
+            isFunction(tree) ? compileFunction(primitives, tree) :  compileObject(primitives, tree);
     }
 
     return () => tree;
@@ -25,9 +31,9 @@ function parseTree(primitives, tree) {
 
 const varsDeclarationKey = '$let';
 
-function parsePrimitive(primitives, tree) {
+function compilePrimitive(primitives, tree) {
     const keys = Object.keys(tree);
-    const getLocalVars = parseVars(primitives, tree[varsDeclarationKey]);
+    const getLocalVars = compileVars(primitives, tree[varsDeclarationKey]);
     const primitiveKey = find(keys, k => k !== varsDeclarationKey);
     const f = primitives[primitiveKey](parsePrimitiveArgs(primitives, tree[primitiveKey]));
     return ({ vars, input }) => {
@@ -36,11 +42,11 @@ function parsePrimitive(primitives, tree) {
     }
 }
 
-function parseFunction(primitives, tree) {
+function compileFunction(primitives, tree) {
     const keys = Object.keys(tree);
-    const getLocalVars = parseVars(primitives, tree[varsDeclarationKey]);
+    const getLocalVars = compileVars(primitives, tree[varsDeclarationKey]);
     const functionKey = find(keys, k => k !== varsDeclarationKey);
-    const arg = parseTree(primitives, tree[functionKey]); 
+    const arg = compileTree(primitives, tree[functionKey]); 
     return ({ vars, input }) => {
         const extendedVars = { ...vars, ...getLocalVars({ vars, input }) };
         const f = extendedVars[functionKey];
@@ -49,12 +55,12 @@ function parseFunction(primitives, tree) {
 }
 
 function parsePrimitiveArgs(primitives, tree) {
-    if (isString(tree)) { return parseString(tree); }
+    if (isString(tree)) { return compileString(tree); }
 
-    if (isArray(tree)) { return parseArray(primitives, tree) }
+    if (isArray(tree)) { return compileArray(primitives, tree) }
 
     if (isObject(tree)) {
-        return hasPrimitiveProperties(tree) ? mapValues(tree, n => parseTree(primitives, n)) : parseTree(primitives, tree);
+        return hasPrimitiveProperties(tree) ? mapValues(tree, n => compileTree(primitives, n)) : compileTree(primitives, tree);
     }
 
     return () => tree;
@@ -74,13 +80,13 @@ function hasPrimitiveProperties(tree) {
     return Object.keys(tree)[0]?.startsWith('_'); 
 }
 
-function parseArray(primitives, tree) {
-    const funks = map(tree, n => parseTree(primitives, n), primitives);
+function compileArray(primitives, tree) {
+    const funks = map(tree, n => compileTree(primitives, n), primitives);
     return x => map(funks, f => f(x));
 }
 
-function parseVars(primitives, obj) {
-    const funks = mapValues(obj, n => parseTree(primitives, n));
+function compileVars(primitives, obj) {
+    const funks = mapValues(obj, n => compileTree(primitives, n));
     return ({vars, input}) => {
         const localVars = {};
         const extendedVars = { ...vars };
@@ -94,12 +100,12 @@ function parseVars(primitives, obj) {
     }
 }
 
-function parseObject(primitives, obj) {
-    const funks = mapValues(obj, n => parseTree(primitives, n));
+function compileObject(primitives, obj) {
+    const funks = mapValues(obj, n => compileTree(primitives, n));
     return x => mapValues(funks, funk => funk(x));
 }
 
-function parseString(str) {
+function compileString(str) {
     if (str === '#') {
         return ({ input }) => input;
     }
