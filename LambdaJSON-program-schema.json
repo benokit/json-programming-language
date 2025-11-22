@@ -1,0 +1,114 @@
+{
+  "title": "LambdaJSON Program",
+  "type": ["object", "array", "string", "number", "boolean", "null"],
+  "allOf": [
+    { "$ref": "#/defs/Value" }
+  ],
+
+  "$defs": {
+    "Value": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "boolean" },
+        { "type": "number" },
+        { "$ref": "#/definitions/StringValue" },
+        { "$ref": "#/definitions/ArrayValue" },
+        { "$ref": "#/definitions/ObjectValue" }
+      ]
+    },
+
+    "StringValue": {
+      "oneOf": [
+        { "$ref": "#/definitions/InputRef" },
+        { "$ref": "#/definitions/LocalRef" },
+        { "$ref": "#/definitions/LiteralString" }
+      ]
+    },
+
+    "InputRef": {
+      "type": "string",
+      "description": "Reference to function input, e.g. '#', '#.name', '#0.name'",
+      "pattern": "^#($|[0-9]+(\\.[A-Za-z_][A-Za-z0-9_-]*)*|\\.[A-Za-z_][A-Za-z0-9_-]*(\\.[A-Za-z_][A-Za-z0-9_-]*)*)$"
+    },
+
+    "LocalRef": {
+      "type": "string",
+      "description": "Reference to a $let binding, e.g. '@user', '@user.name', '@list.0'",
+      "pattern": "^@[A-Za-z_][A-Za-z0-9_-]*(\\.[A-Za-z_][A-Za-z0-9_-]*|\\.[0-9]+)*$"
+    },
+
+    "LiteralString": {
+      "type": "string",
+      "description": "Any string that is not an input or local reference",
+      "not": {
+        "anyOf": [
+          { "pattern": "^#" },
+          { "pattern": "^@" }
+        ]
+      }
+    },
+
+    "ArrayValue": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/Value" }
+    },
+
+    "ObjectValue": {
+      "oneOf": [
+        { "$ref": "#/definitions/PlainObject" },
+        { "$ref": "#/definitions/CallNode" }
+      ]
+    },
+
+    "PlainObject": {
+      "type": "object",
+      "description": "Object with no keys starting with '$'; evaluates field-wise",
+      "propertyNames": {
+        "type": "string",
+        "not": { "pattern": "^\\$" }
+      },
+      "additionalProperties": { "$ref": "#/definitions/Value" }
+    },
+
+    "CallNode": {
+      "type": "object",
+      "description": "Execution node: has at least one '$...' property for the call, optional '$let', and other plain fields.",
+      "properties": {
+        "$let": {
+          "type": "object",
+          "description": "Local bindings, used by '@name' references",
+          "propertyNames": {
+            "type": "string",
+            "not": { "pattern": "^\\$" }
+          },
+          "additionalProperties": { "$ref": "#/definitions/Value" }
+        }
+      },
+      "patternProperties": {
+        "^\\$[^].*": {
+          "description": "Function call head; arguments to primitive or local function",
+          "$ref": "#/definitions/Value"
+        }
+      },
+      "additionalProperties": {
+        "description": "Non-$ properties on a CallNode behave like plain object fields",
+        "$ref": "#/definitions/Value"
+      },
+      "allOf": [
+        {
+          "description": "Require at least one call-head key starting with '$'",
+          "minProperties": 1
+        }
+      ]
+    },
+
+    "ConfigObject": {
+      "type": "object",
+      "description": "Typical primitive config object: keys starting with '_' are config fields",
+      "patternProperties": {
+        "^_": { "$ref": "#/definitions/Value" }
+      },
+      "additionalProperties": { "$ref": "#/definitions/Value" }
+    }
+  }
+}
