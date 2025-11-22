@@ -310,13 +310,11 @@ describe('pure json programming language', () => {
 
     example ('pipeline (use of anonymous functions (lambda))', {
         program: {
-            $pipeline: {
-                _sequence: [
-                    { $: { $sum: ['#', 1] }},
-                    { $: { $multiply: ['#', 2] }},
-                    { $: { $subtract: ['#', 4] }}
-                ]
-            }
+            $pipeline: [
+                { $: { $sum: ['#', 1] }},
+                { $: { $multiply: ['#', 2] }},
+                { $: { $subtract: ['#', 4] }}
+            ]
         },
         cases: [
             {
@@ -366,5 +364,72 @@ describe('pure json programming language', () => {
             'x': [{ name: 'a', country: 'x' }, { name: 'c', country: 'x' }],
             'y': [ { name: 'b', country: 'y'} ]
         }
+    });
+
+    example ('to dictionary', {
+        program: {
+            $toDictionary: {
+                _by: '#.name'
+            }
+        },
+        input: [{ name: 'a', country: 'x' }, { name: 'b', country: 'y'}, { name: 'c', country: 'x' }],
+        output: {
+            'a': { name: 'a', country: 'x' },
+            'b': { name: 'b', country: 'y' },
+            'c': { name: 'c', country: 'x' }
+        }
+    });
+
+    example ('concatenate arrays', {
+        program: {
+            $concat: '#'
+        },
+        input: [[1, 2], [3], [4, 5]],
+        output: [1, 2, 3, 4, 5]
+    });
+
+    example ('divide', {
+        program: {
+            $divide: ['#', 2]
+        },
+        input: 1,
+        output: 0.5
+    });
+
+    example ('match pattern in a string', {
+        program: {
+            $pipeline: [
+                {$:{
+                    $match: {
+                        _pattern: '^(\\d{4})-(\\d{2}-\\d{2})'
+                    }
+                }},
+                {$:{
+                    $tail: '#'
+                }}
+            ]
+        },
+        input: '2025-01-01',
+        output: ['2025', '01-01']
+    });
+
+    example ('printf', {
+        program: {
+            $printf: {
+                _template: 'ABC-%04d/%d'
+            }
+        },
+        input: [12, 2025],
+        output: 'ABC-0012/2025'
+    });
+
+    example ('string join', {
+        program: {
+            $join: {
+                _separator: '-'
+            }
+        },
+        input: [2025, '01-01'],
+        output: '2025-01-01'
     });
 });
