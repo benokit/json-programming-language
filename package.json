@@ -1,7 +1,28 @@
 {
-  "name": "json-programming-language",
+  "name": "lambdajson-js",
   "version": "1.0.0",
-  "description": "Pure functions declared in JSON",
+  "description": "LambdaJSON to JavaScript function compiler",
+  "type": "module",
+  "main": "./src/js-compiler.js",
+  "module": "./src/js-compiler.js",
+  "files": [
+    "src",
+    "src/README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    ".": {
+      "import": "./src/js-compiler.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "keywords": [
+    "lambdajson",
+    "json",
+    "compiler",
+    "transpiler",
+    "javascript"
+  ],
   "homepage": "https://github.com/benokit/json-programming-language#readme",
   "bugs": {
     "url": "https://github.com/benokit/json-programming-language/issues"
@@ -12,8 +33,6 @@
   },
   "license": "MIT",
   "author": "Benjamin Batistic",
-  "type": "module",
-  "main": "index.js",
   "scripts": {
     "test": "mocha"
   },
@@ -22,10 +41,10 @@
     "lodash-es": "^4.17.21"
   },
   "devDependencies": {
-    "chai": "^6.2.1",
     "@eslint/js": "^9.39.1",
-    "eslint": "^9.39.1",
-    "mocha": "^11.7.5",
-    "globals": "^16.5.0"
+    "chai": "^6.2.1",
+    "esbuild": "^0.27.0",
+    "globals": "^16.5.0",
+    "mocha": "^11.7.5"
   }
 }
