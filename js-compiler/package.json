@@ -1,6 +1,6 @@
 {
   "name": "lambdajson-js",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "LambdaJSON to JavaScript function compiler",
   "type": "module",
   "main": "./src/js-compiler.js",

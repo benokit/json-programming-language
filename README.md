@@ -19,6 +19,7 @@ This makes LambdaJSON useful for server-driven business rules, dynamic workflows
 Install dependencies and run tests:
 
 ```bash
+cd ./js-compiler
 npm install
 npm test
 ```
@@ -74,7 +75,7 @@ On top of that, LambdaJSON defines **conventions on property names and string su
 
   A property whose name ends with `_` (for example `_with`) must correspond to a **configuration property** of the function called in the same object.
 
-  The exact set of supported config properties is defined per primitive (see `src/primitives.js`).
+  The exact set of supported config properties is defined per primitive (see `./src/primitives.js`).
 
 ### String value conventions
 
@@ -261,7 +262,7 @@ f([2, 3]); // => 6
 
 The JS compiler:
 
-* lives in [`src/js-compiler.js`](./src/js-compiler.js),
+* lives in [`src/js-compiler.js`](./js-compiler/src/js-compiler.js),
 * takes a program (parsed JSON) and a set of primitives,
 * returns a JavaScript function `(input) => output`.
 
@@ -281,7 +282,7 @@ const result = f(input);
 
 ## Testing
 
-Tests are in [`test/test-js-compiler.js`](./test/test-js-compiler.js).
+Tests are in [`test/test-js-compiler.js`](./js-compiler/test/test-js-compiler.js).
 
 Run them with:
 
