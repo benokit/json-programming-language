@@ -71,11 +71,23 @@ On top of that, LambdaJSON defines **conventions on property names and string su
 
   Special property `$let` is reserved for **local variable and function declarations** and must appear in the same object together with a function call.
 
+* **Literal value**
+
+  An object of the form `{ "$value": <expr> }` evaluates to `<expr>` as-is, without interpreting it as a program node.
+
+  Example: `{ "$value": "#.name" }` evaluates to the string `"#.name"`.
+
 * **Function configuration**
 
   A property whose name ends with `_` (for example `_with`) must correspond to a **configuration property** of the function called in the same object.
 
   The exact set of supported config properties is defined per primitive (see `./src/primitives.js`).
+
+* **Escape**
+
+  A property name beginning with `\` is treated literally: the leading `\` is stripped and the remainder becomes the output key.
+
+  Example: `"\$name"` produces a property named `$name` in the output object.
 
 ### String value conventions
 
@@ -95,6 +107,13 @@ String values are interpreted according to their prefix:
 
   Example (object input): `"#.name"`
   Example (array input, index 0–9): `"#0.name"`.
+
+* **`\` — escape**
+
+  A string starting with `\` is treated literally: the leading `\` is stripped and the remainder is the value.
+  Use this to prevent `#` or `@` from being interpreted as a reference, or `\\` to produce a literal backslash.
+
+  Example: `"\#.name"` evaluates to the string `"#.name"`.
 
 * **other strings** are treated as literal values.
 

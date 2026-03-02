@@ -432,4 +432,68 @@ describe('pure json programming language', () => {
         input: [2025, '01-01'],
         output: '2025-01-01'
     });
+
+    example ('compile not plain object - string', {
+        program: '#.value',
+        input: {
+            value: { a: 1 }
+        },
+        output: { a: 1 }
+    });
+
+    example ('compile not plain object - number', {
+        program: 2.1,
+        input: {},
+        output: 2.1
+    });
+
+    example ('literal', {
+        program: {
+            $value: '#.value'
+        },
+        input: {
+            value: { a: 1 }
+        },
+        output: '#.value'
+    });
+
+    example ('escape # in string value', {
+        program: {
+            $return: '\\#.name'
+        },
+        input: { name: 'anything' },
+        output: '#.name'
+    });
+
+    example ('escape @ in string value', {
+        program: {
+            $return: '\\@var'
+        },
+        input: {},
+        output: '@var'
+    });
+
+    example ('escape \\ in string value', {
+        program: {
+            $return: '\\\\'
+        },
+        input: {},
+        output: '\\'
+    });
+
+    example ('escape $ in property name', {
+        program: {
+            '\\$name': '#'
+        },
+        input: 'test',
+        output: { '$name': 'test' }
+    });
+
+    example ('escape \\ in property name', {
+        program: {
+            '\\\\_data': '#'
+        },
+        input: 42,
+        output: { '\\_data': 42 }
+    });
 });

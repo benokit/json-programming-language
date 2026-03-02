@@ -1,4 +1,4 @@
-import { isObject, isString, map, get, find, mapValues, isArray, every } from 'lodash-es'
+import { isObject, isString, map, get, find, mapValues, isArray, every, has } from 'lodash-es'
 import { primitives } from './primitives.js';
 
 export {
@@ -30,8 +30,12 @@ function compileTree(primitives, tree) {
 }
 
 const varsDeclarationKey = '$let';
+const valueDeclarationKey = '$value';
 
 function compilePrimitive(primitives, tree) {
+    if (has(tree, valueDeclarationKey)) {
+        return _ => tree[valueDeclarationKey];
+    }
     const keys = Object.keys(tree);
     const getLocalVars = compileVars(primitives, tree[varsDeclarationKey]);
     const primitiveKey = find(keys, k => k !== varsDeclarationKey);
@@ -102,10 +106,20 @@ function compileVars(primitives, obj) {
 
 function compileObject(primitives, obj) {
     const funks = mapValues(obj, n => compileTree(primitives, n));
-    return x => mapValues(funks, funk => funk(x));
+    return x => {
+        const result = {};
+        for (const key in funks) {
+            const pKey = key.startsWith('\\') ? key.slice(1) : key;
+            result[pKey] = funks[key](x);
+        }
+        return result;
+    };
 }
 
 function compileString(str) {
+    if (str.startsWith('\\')) {
+        return () => str.slice(1);
+    }
     if (str === '#') {
         return ({ input }) => input;
     }

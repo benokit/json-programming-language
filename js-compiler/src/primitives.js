@@ -6,6 +6,7 @@ const input = ({ input }) => input
 
 export const primitives = {
     $let: true,
+    $value: true,
     $: f => x => v => f({ ...x, input: v}),
     $in: f => x => f(x),
     $return: f => x => f(x),
