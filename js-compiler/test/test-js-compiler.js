@@ -449,7 +449,7 @@ describe('pure json programming language', () => {
 
     example ('literal', {
         program: {
-            $value: '#.value'
+            $literal: '#.value'
         },
         input: {
             value: { a: 1 }

@@ -30,7 +30,7 @@ function compileTree(primitives, tree) {
 }
 
 const varsDeclarationKey = '$let';
-const valueDeclarationKey = '$value';
+const valueDeclarationKey = '$literal';
 
 function compilePrimitive(primitives, tree) {
     if (has(tree, valueDeclarationKey)) {

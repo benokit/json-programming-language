@@ -73,9 +73,9 @@ On top of that, LambdaJSON defines **conventions on property names and string su
 
 * **Literal value**
 
-  An object of the form `{ "$value": <expr> }` evaluates to `<expr>` as-is, without interpreting it as a program node.
+  An object of the form `{ "$literal": <expr> }` evaluates to `<expr>` as-is, without interpreting it as a program node.
 
-  Example: `{ "$value": "#.name" }` evaluates to the string `"#.name"`.
+  Example: `{ "$literal": "#.name" }` evaluates to the string `"#.name"`.
 
 * **Function configuration**
 
