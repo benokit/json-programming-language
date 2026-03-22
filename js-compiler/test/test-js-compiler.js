@@ -423,6 +423,26 @@ describe('pure json programming language', () => {
         output: 'ABC-0012/2025'
     });
 
+    example ('any', {
+        program: {
+            $any: {
+                _predicate: { $gt: ['#', 3] }
+            }
+        },
+        input: [1, 2, 4],
+        output: true
+    });
+
+    example ('all', {
+        program: {
+            $all: {
+                _predicate: { $gt: ['#', 0] }
+            }
+        },
+        input: [1, 2, 3],
+        output: true
+    });
+
     example ('coalesce', {
         program: { $coalesce: '#' },
         input: [null, undefined, 42, 'ignored'],

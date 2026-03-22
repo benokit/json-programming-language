@@ -1,6 +1,6 @@
 import { printf } from 'fast-printf';
-import { concat, divide, eq, filter, first, get, groupBy, gt, gte, includes, join, keyBy, keys, lt, lte, map, mapValues, merge, multiply,
-    reduce, split, subtract, sum, tail, take, takeWhile, values, zipWith } from 'lodash-es'
+import { concat, divide, eq, every, filter, first, get, groupBy, gt, gte, includes, join, keyBy, keys, lt, lte, map, mapValues, merge, multiply,
+    reduce, some, split, subtract, sum, tail, take, takeWhile, values, zipWith } from 'lodash-es'
 
 const input = ({ input }) => input
 
@@ -35,6 +35,8 @@ export const primitives = {
     $keys: f => x => keys(f(x)),
     $merge: f => x => merge({}, ...f(x)),
     $coalesce: f => x => f(x).find(v => v != null),
+    $any: ({ _collection = input, _predicate }) => x => some(_collection(x), v => _predicate({ ...x, input: v })),
+    $all: ({ _collection = input, _predicate }) => x => every(_collection(x), v => _predicate({ ...x, input: v })),
     $values: f => x => values(f(x)),
     $get: ({ _object = input, _path }) => x => get(_object(x), _path(x)),
     $includes: ({ _collection = input, _value }) => x => includes(_collection(x), _value(x)),
