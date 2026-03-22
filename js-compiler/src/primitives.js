@@ -1,5 +1,5 @@
 import { printf } from 'fast-printf';
-import { concat, divide, eq, filter, first, groupBy, gt, gte, join, keyBy, lt, lte, map, mapValues, multiply,
+import { concat, divide, eq, filter, first, get, groupBy, gt, gte, includes, join, keyBy, lt, lte, map, mapValues, multiply,
     reduce, split, subtract, sum, tail, take, takeWhile, values, zipWith } from 'lodash-es'
 
 const input = ({ input }) => input
@@ -33,6 +33,8 @@ export const primitives = {
     $group: ({ _by, _collection = input }) => x => groupBy(_collection(x), v => _by({...x, input: v})),
     $toDictionary: ({ _by, _collection = input }) => x => keyBy(_collection(x), v => _by({...x, input: v})),
     $values: f => x => values(f(x)),
+    $get: ({ _object = input, _path }) => x => get(_object(x), _path(x)),
+    $includes: ({ _collection = input, _value }) => x => includes(_collection(x), _value(x)),
     $split: ({ _separator, _string = input }) => x => split(_string(x), _separator(x)),
     $match: ({ _pattern, _string = input }) => x => _string(x).match(_pattern(x)),
     $join: ({ _separator = _ => "", _strings = input }) => x => join(_strings(x), _separator(x)),

@@ -423,6 +423,38 @@ describe('pure json programming language', () => {
         output: 'ABC-0012/2025'
     });
 
+    example ('includes', {
+        program: {
+            $includes: {
+                _collection: '#.items',
+                _value: '#.target'
+            }
+        },
+        input: { items: ['a', 'b', 'c'], target: 'b' },
+        output: true
+    });
+
+    example ('get value at path', {
+        program: {
+            $get: {
+                _path: 'a.b'
+            }
+        },
+        input: { a: { b: 42 } },
+        output: 42
+    });
+
+    example ('get value at path with explicit object', {
+        program: {
+            $get: {
+                _object: '#.data',
+                _path: 'a.b'
+            }
+        },
+        input: { data: { a: { b: 42 } } },
+        output: 42
+    });
+
     example ('string join', {
         program: {
             $join: {
