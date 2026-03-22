@@ -423,6 +423,12 @@ describe('pure json programming language', () => {
         output: 'ABC-0012/2025'
     });
 
+    example ('keys', {
+        program: { $keys: '#' },
+        input: { a: 1, b: 2, c: 3 },
+        output: ['a', 'b', 'c']
+    });
+
     example ('includes', {
         program: {
             $includes: {
