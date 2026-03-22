@@ -35,7 +35,7 @@ export const primitives = {
     $values: f => x => values(f(x)),
     $split: ({ _separator, _string = input }) => x => split(_string(x), _separator(x)),
     $match: ({ _pattern, _string = input }) => x => _string(x).match(_pattern(x)),
-    $join: ({ _separator, _strings = input }) => x => join(_strings(x), _separator(x)),
+    $join: ({ _separator = _ => "", _strings = input }) => x => join(_strings(x), _separator(x)),
     $printf: ({ _template, _args = input}) => x => printf(_template(x), ..._args(x)),
     $take: ({ _while, _count, _from = input }) => x => {
         let y = _from(x);

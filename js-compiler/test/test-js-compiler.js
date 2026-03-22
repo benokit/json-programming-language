@@ -433,6 +433,14 @@ describe('pure json programming language', () => {
         output: '2025-01-01'
     });
 
+    example ('string join default separator', {
+        program: {
+            $join: {}
+        },
+        input: ['foo', 'bar', 'baz'],
+        output: 'foobarbaz'
+    });
+
     example ('compile not plain object - string', {
         program: '#.value',
         input: {
