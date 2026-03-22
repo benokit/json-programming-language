@@ -423,6 +423,18 @@ describe('pure json programming language', () => {
         output: 'ABC-0012/2025'
     });
 
+    example ('coalesce', {
+        program: { $coalesce: '#' },
+        input: [null, undefined, 42, 'ignored'],
+        output: 42
+    });
+
+    example ('merge', {
+        program: { $merge: '#' },
+        input: [{ a: 1, b: 2 }, { b: 3, c: 4 }],
+        output: { a: 1, b: 3, c: 4 }
+    });
+
     example ('keys', {
         program: { $keys: '#' },
         input: { a: 1, b: 2, c: 3 },
