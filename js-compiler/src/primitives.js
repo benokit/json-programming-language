@@ -62,5 +62,12 @@ export const primitives = {
         return _init
             ? x => reduce(_collection(x), (a, v) => aggregator(x, [a, v]), _init(x))
             : x => reduce(_collection(x), (a, v) => aggregator(x, [a, v]));
-    }
+    },
+    $replace: ({ _regex, _substitute, _string = input, _global }) => x => {
+        const pattern = _global?.(x) ? new RegExp(_regex(x), 'g') : _regex(x);
+        return _string(x).replace(pattern, _substitute(x));
+    },
+    $isMatch: ({ _pattern, _string = input }) => x => new RegExp(_pattern(x)).test(_string(x)),
+    $parseInt: f => x => { const n = parseInt(f(x), 10); return isNaN(n) ? undefined : n; },
+    $parseFloat: f => x => { const n = parseFloat(f(x)); return isNaN(n) ? undefined : n; },
 }

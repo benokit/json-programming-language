@@ -574,4 +574,81 @@ describe('pure json programming language', () => {
         input: 42,
         output: { '\\_data': 42 }
     });
+
+    example ('replace first occurrence', {
+        program: {
+            $replace: {
+                _regex: 'o',
+                _substitute: '0'
+            }
+        },
+        input: 'foobar',
+        output: 'f0obar'
+    });
+
+    example ('parseInt', {
+        program: { $parseInt: '#' },
+        cases: [
+            { input: '42',  output: 42 },
+            { input: 'abc', output: undefined }
+        ]
+    });
+
+    example ('parseFloat', {
+        program: { $parseFloat: '#' },
+        cases: [
+            { input: '3.14', output: 3.14 },
+            { input: 'abc',  output: undefined }
+        ]
+    });
+
+    example ('isMatch', {
+        program: {
+            $isMatch: {
+                _pattern: '^\\d+$'
+            }
+        },
+        cases: [
+            { input: '123',  output: true },
+            { input: '12x3', output: false }
+        ]
+    });
+
+    example ('replace all occurrences', {
+        program: {
+            $replace: {
+                _regex: 'o',
+                _substitute: '0',
+                _global: true
+            }
+        },
+        input: 'foobar',
+        output: 'f00bar'
+    });
+
+    example ('strip quotes then parse integer', {
+        program: {
+            $parseInt: {
+                $replace: {
+                    _regex: '"',
+                    _substitute: '',
+                    _global: true
+                }
+            }
+        },
+        input: '"42"',
+        output: 42
+    });
+
+    example ('replace with explicit string', {
+        program: {
+            $replace: {
+                _string: '#.text',
+                _regex: '#.from',
+                _substitute: '#.to'
+            }
+        },
+        input: { text: 'hello world', from: 'world', to: 'there' },
+        output: 'hello there'
+    });
 });
