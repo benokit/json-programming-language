@@ -1,6 +1,6 @@
 import { printf } from 'fast-printf';
 import { concat, divide, eq, every, filter, first, get, groupBy, gt, gte, includes, join, keyBy, keys, lt, lte, map, mapValues, merge, multiply,
-    reduce, some, split, subtract, sum, tail, take, takeWhile, values, zipWith } from 'lodash-es'
+    orderBy, reduce, some, split, subtract, sum, tail, take, takeWhile, values, zipWith } from 'lodash-es'
 
 const input = ({ input }) => input
 
@@ -70,4 +70,8 @@ export const primitives = {
     $isMatch: ({ _pattern, _string = input }) => x => new RegExp(_pattern(x)).test(_string(x)),
     $parseInt: f => x => { const n = parseInt(f(x), 10); return isNaN(n) ? undefined : n; },
     $parseFloat: f => x => { const n = parseFloat(f(x)); return isNaN(n) ? undefined : n; },
+    $ascending: ({ _by, _collection = input }) => x =>
+        orderBy(_collection(x), _by ? [v => _by({ ...x, input: v })] : undefined, ['asc']),
+    $descending: ({ _by, _collection = input }) => x =>
+        orderBy(_collection(x), _by ? [v => _by({ ...x, input: v })] : undefined, ['desc']),
 }

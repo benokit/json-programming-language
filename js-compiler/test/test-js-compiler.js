@@ -651,4 +651,40 @@ describe('pure json programming language', () => {
         input: { text: 'hello world', from: 'world', to: 'there' },
         output: 'hello there'
     });
+
+    example ('ascending sort of numbers', {
+        program: { $ascending: {} },
+        input: [3, 1, 4, 1, 5, 9, 2, 6],
+        output: [1, 1, 2, 3, 4, 5, 6, 9]
+    });
+
+    example ('descending sort of numbers', {
+        program: { $descending: {} },
+        input: [3, 1, 4, 1, 5, 9, 2, 6],
+        output: [9, 6, 5, 4, 3, 2, 1, 1]
+    });
+
+    example ('ascending sort by property', {
+        program: {
+            $ascending: { _by: '#.age' }
+        },
+        input: [{ name: 'Charlie', age: 30 }, { name: 'Alice', age: 25 }, { name: 'Bob', age: 28 }],
+        output: [{ name: 'Alice', age: 25 }, { name: 'Bob', age: 28 }, { name: 'Charlie', age: 30 }]
+    });
+
+    example ('descending sort by property', {
+        program: {
+            $descending: { _by: '#.age' }
+        },
+        input: [{ name: 'Charlie', age: 30 }, { name: 'Alice', age: 25 }, { name: 'Bob', age: 28 }],
+        output: [{ name: 'Charlie', age: 30 }, { name: 'Bob', age: 28 }, { name: 'Alice', age: 25 }]
+    });
+
+    example ('ascending sort with explicit collection', {
+        program: {
+            $ascending: { _collection: '#.items' }
+        },
+        input: { items: [5, 2, 8, 1] },
+        output: [1, 2, 5, 8]
+    });
 });
