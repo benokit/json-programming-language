@@ -1,6 +1,19 @@
 import { printf } from 'fast-printf';
-import { concat, divide, eq, every, filter, first, get, groupBy, gt, gte, includes, isArray, join, keyBy, keys, lt, lte, map, mapValues, merge, multiply,
-    orderBy, reduce, some, split, subtract, sum, tail, take, takeWhile, values, zipObject, zipWith } from 'lodash-es'
+import { concat, divide, every, filter, find, first, get, groupBy, gt, gte, includes, isArray, isEqual, isNil, join, keyBy, keys, lt, lte, map, mapValues, max, merge, min, multiply,
+    omit, orderBy, pick, reduce, round, some, split, subtract, sum, tail, take, takeWhile, uniqWith, values, zipObject, zipWith } from 'lodash-es'
+
+/**
+ * A problem found while a program runs, e.g. an operand that is missing.
+ * `path` is a JSON Pointer to the offending node of the program, `code` a stable identifier.
+ */
+export class LambdaJSONRuntimeError extends Error {
+    constructor(code, path, message) {
+        super(`${message} (at ${path || '/'})`);
+        this.name = 'LambdaJSONRuntimeError';
+        this.code = code;
+        this.path = path;
+    }
+}
 
 /**
  * Primitives come in three shapes:
@@ -44,10 +57,27 @@ const variadic = (name, empty, decides) => special((args, { compile }) => {
     };
 }, { description: `${name}: [a, b, …], short-circuits` });
 
+/**
+ * Arithmetic and ordering need values: an operand that is null or undefined (typically a path
+ * missing in the input) fails with the path of the call instead of flowing on silently.
+ */
+const strict = (name, impl) => special((args, { compile, path }) => {
+    const f = compile(args);
+    return x => {
+        const operands = f(x);
+        const missing = isArray(operands) ? operands.findIndex(isNil) : isNil(operands) ? 0 : -1;
+        if (missing >= 0) {
+            throw new LambdaJSONRuntimeError('missing-operand', path,
+                `${name} got ${operands?.[missing] === null ? 'null' : 'undefined'} as ${isArray(operands) ? `operand ${missing}` : 'its operand'}; a path in the input is probably missing`);
+        }
+        return impl(operands);
+    };
+});
+
 const sort = direction => named(['by?', 'collection=#', 'as?'], ({ by, collection, as }) => x =>
     orderBy(collection(x), by ? [v => call(by, as, x, [v])] : undefined, [direction]));
 
-export const primitives = {
+const primitiveTable = {
     $let: true,
     $literal: special(value => () => value),
     $: f => x => v => f({ ...x, input: v }),
@@ -78,17 +108,17 @@ export const primitives = {
     $not: f => x => !f(x),
     $negate: f => x => !f(x),
 
-    $eq: f => x => eq(...f(x)),
-    $neq: f => x => !eq(...f(x)),
-    $lt: f => x => lt(...f(x)),
-    $lte: f => x => lte(...f(x)),
-    $gt: f => x => gt(...f(x)),
-    $gte: f => x => gte(...f(x)),
+    $eq: f => x => isEqual(...f(x)),
+    $neq: f => x => !isEqual(...f(x)),
+    $lt: strict('$lt', v => lt(...v)),
+    $lte: strict('$lte', v => lte(...v)),
+    $gt: strict('$gt', v => gt(...v)),
+    $gte: strict('$gte', v => gte(...v)),
 
-    $sum: f => x => sum(f(x)),
-    $subtract: f => x => subtract(...f(x)),
-    $multiply: f => x => multiply(...f(x)),
-    $divide: f => x => divide(...f(x)),
+    $sum: strict('$sum', v => sum(v)),
+    $subtract: strict('$subtract', v => subtract(...v)),
+    $multiply: strict('$multiply', v => multiply(...v)),
+    $divide: strict('$divide', v => divide(...v)),
 
     $map: named(['fn', 'over=#', 'as?'], ({ fn, over, as }) => x => map(over(x), lambda(fn, as, x))),
     $mapValues: named(['fn', 'of=#', 'as?'], ({ fn, of, as }) => x => mapValues(of(x), lambda(fn, as, x))),
@@ -136,6 +166,82 @@ export const primitives = {
         return string(x).replace(p, substitute(x));
     }),
     $printf: named(['template', 'args=#'], ({ template, args }) => x => printf(template(x), ...args(x))),
+    $round: named(['value=#', 'digits?'], ({ value, digits }) => x => round(value(x), digits?.(x))),
+    $min: f => x => min(f(x)),
+    $max: f => x => max(f(x)),
+    $count: named(['predicate?', 'collection=#', 'as?'], ({ predicate, collection, as }) => x =>
+        predicate ? filter(collection(x), lambda(predicate, as, x)).length : collection(x).length),
+    $find: named(['predicate', 'collection=#', 'as?'], ({ predicate, collection, as }) => x => find(collection(x), lambda(predicate, as, x))),
+    $unique: f => x => uniqWith(f(x), isEqual),
+    $pick: named(['keys', 'object=#'], ({ keys, object }) => x => pick(object(x), keys(x))),
+    $omit: named(['keys', 'object=#'], ({ keys, object }) => x => omit(object(x), keys(x))),
+    $lower: f => x => toStr(f(x)).toLowerCase(),
+    $upper: f => x => toStr(f(x)).toUpperCase(),
+    $trim: f => x => toStr(f(x)).trim(),
+    $isNil: f => x => isNil(f(x)),
     $parseInt: f => x => { const n = parseInt(f(x), 10); return isNaN(n) ? undefined : n; },
     $parseFloat: f => x => { const n = parseFloat(f(x)); return isNaN(n) ? undefined : n; },
 }
+
+/**
+ * Types of the primitives, so that tools can infer what a program takes and returns.
+ * `takes` is the type of the expression argument, or an object of parameter types for
+ * named parameters; `returns` the type of the result. Types: `any`, `number`, `string`,
+ * `boolean`, `object`, `function` (a lambda), `names` (the `as` parameter), `array` or `array<T>`.
+ * A custom primitive declares its own with `typed`.
+ */
+export const typed = (primitive, signature) => typeof primitive === 'function'
+    ? Object.assign(primitive, { signature })
+    : { ...primitive, signature };
+
+const sig = (takes, returns) => ({ takes, returns });
+const over = (fn, collection, returns, extra = {}) => sig({ [fn]: 'function', [collection]: collection === 'of' ? 'object' : 'array', ...extra, as: 'names' }, returns);
+const numbers = 'array<number>';
+
+const signatures = {
+    $literal: sig('any', 'any'), $: sig('any', 'function'), $in: sig('any', 'any'), $return: sig('any', 'any'),
+    $apply: sig({ fn: 'function', to: 'any', as: 'names' }, 'any'),
+    $pipeline: sig('array<function>', 'any'),
+    $if: sig('array', 'any'), $cond: sig('array', 'any'), $and: sig('array', 'any'), $or: sig('array', 'any'),
+    $not: sig('any', 'boolean'), $negate: sig('any', 'boolean'),
+    $eq: sig('array', 'boolean'), $neq: sig('array', 'boolean'),
+    $lt: sig(numbers, 'boolean'), $lte: sig(numbers, 'boolean'), $gt: sig(numbers, 'boolean'), $gte: sig(numbers, 'boolean'),
+    $sum: sig(numbers, 'number'), $subtract: sig(numbers, 'number'), $multiply: sig(numbers, 'number'), $divide: sig(numbers, 'number'),
+    $map: over('fn', 'over', 'array'),
+    $mapValues: over('fn', 'of', 'object'),
+    $filter: over('predicate', 'collection', 'array'),
+    $any: over('predicate', 'collection', 'boolean'),
+    $all: over('predicate', 'collection', 'boolean'),
+    $group: over('by', 'collection', 'object'),
+    $toDictionary: over('by', 'collection', 'object'),
+    $ascending: over('by', 'collection', 'array'),
+    $descending: over('by', 'collection', 'array'),
+    $take: sig({ while: 'function', count: 'number', from: 'array', as: 'names' }, 'array'),
+    $zip: sig({ with: 'function', sequences: 'array<array>', as: 'names' }, 'array'),
+    $fold: sig({ with: 'function', init: 'any', collection: 'array', as: 'names' }, 'any'),
+    $head: sig('array', 'any'), $tail: sig('array', 'array'), $concat: sig('array<array>', 'array'),
+    $keys: sig('object', 'array<string>'), $values: sig('object', 'array'), $merge: sig('array<object>', 'object'),
+    $coalesce: sig('array', 'any'),
+    $get: sig({ object: 'object', path: 'string' }, 'any'),
+    $includes: sig({ collection: 'array', value: 'any' }, 'boolean'),
+    $str: sig('any', 'string'),
+    $join: sig({ separator: 'string', strings: 'array' }, 'string'),
+    $split: sig({ separator: 'string', string: 'string' }, 'array<string>'),
+    $match: sig({ pattern: 'string', string: 'string' }, 'array'),
+    $isMatch: sig({ pattern: 'string', string: 'string' }, 'boolean'),
+    $replace: sig({ regex: 'string', substitute: 'string', string: 'string', global: 'boolean' }, 'string'),
+    $printf: sig({ template: 'string', args: 'array' }, 'string'),
+    $round: sig({ value: 'number', digits: 'number' }, 'number'),
+    $min: sig(numbers, 'number'), $max: sig(numbers, 'number'),
+    $count: over('predicate', 'collection', 'number'),
+    $find: over('predicate', 'collection', 'any'),
+    $unique: sig('array', 'array'),
+    $pick: sig({ keys: 'array<string>', object: 'object' }, 'object'),
+    $omit: sig({ keys: 'array<string>', object: 'object' }, 'object'),
+    $lower: sig('string', 'string'), $upper: sig('string', 'string'), $trim: sig('string', 'string'),
+    $isNil: sig('any', 'boolean'),
+    $parseInt: sig('string', 'number'), $parseFloat: sig('string', 'number'),
+};
+
+export const primitives = Object.fromEntries(Object.entries(primitiveTable).map(([name, primitive]) =>
+    [name, signatures[name] ? typed(primitive, signatures[name]) : primitive]));

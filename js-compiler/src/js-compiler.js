@@ -1,12 +1,13 @@
-import { get, isArray, isPlainObject, isString, map, mapValues } from 'lodash-es'
-import { primitives } from './primitives.js';
+import { get, isArray, isPlainObject, isString, map, mapValues, zipObject } from 'lodash-es'
+import { primitives, LambdaJSONRuntimeError } from './primitives.js';
 
 export {
     compile,
     lint,
+    signatureOf,
     LambdaJSONError
 }
-export { primitives, named, special, call } from './primitives.js';
+export { primitives, named, special, call, typed, LambdaJSONRuntimeError } from './primitives.js';
 
 /**
  * A problem in the structure of a program, found while compiling it.
@@ -22,6 +23,7 @@ class LambdaJSONError extends Error {
 }
 
 const LET = '$let';
+const FN = '$fn';
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 
 /**
@@ -53,6 +55,15 @@ function lint(program, extendedPrimitives = {}) {
         problems.push({ severity: 'error', code: error.code, path: error.path, message: error.message });
     }
     return problems;
+}
+
+/**
+ * The declared types of a primitive: `{ takes, returns }`, or undefined when it declares none.
+ * @param {string} name
+ * @param {object} extendedPrimitives
+ */
+function signatureOf(name, extendedPrimitives = {}) {
+    return ({ ...primitives, ...extendedPrimitives })[name]?.signature;
 }
 
 function compileProgram(program, extendedPrimitives, warn) {
@@ -204,7 +215,7 @@ function parseAs(value, path) {
 
 function compileFunctionCall(scope, key, value, path) {
     const arg = compileTree(scope, value, path);
-    return ({ vars, input }) => vars[key]({ vars, input: arg({ vars, input }) });
+    return ({ vars, input }) => vars[key]({ vars, input: arg({ vars, input }), outer: input });
 }
 
 function compileArray(scope, tree, path) {
@@ -212,8 +223,34 @@ function compileArray(scope, tree, path) {
     return x => map(funks, f => f(x));
 }
 
+/**
+ * `{ "$fn": { "as": names, "body": expression } }` declares a function with named parameters.
+ * The call's argument is bound to the name, or its items to the names of an array; `#` in the
+ * body stays the input of the caller.
+ */
+function compileFunction(scope, tree, path) {
+    const fnPath = pointer(path, FN);
+    const spec = tree[FN];
+    if (!isPlainObject(spec) || Object.keys(spec).some(k => k !== 'as' && k !== 'body') || !('as' in spec) || !('body' in spec)) {
+        fail('invalid-function', fnPath, `'${FN}' is an object { as, body }`);
+    }
+    const names = parseAs(spec.as, pointer(fnPath, 'as'));
+    const body = compileTree(scope, spec.body, pointer(fnPath, 'body'));
+    return ({ vars, input, outer }) => {
+        const args = isArray(spec.as) ? input : [input];
+        if (args.length !== names.length) {
+            throw new LambdaJSONRuntimeError('wrong-argument-count', fnPath, `the function takes ${names.length} argument(s), got ${args.length}`);
+        }
+        return body({ vars: { ...vars, ...zipObject(names, args) }, input: outer });
+    };
+}
+
+const isFunctionDeclaration = tree => isPlainObject(tree) && Object.keys(tree).length === 1 && FN in tree;
+
 function compileVars(scope, obj, path) {
-    const funks = mapValues(obj, (n, k) => compileTree(scope, n, pointer(path, k)));
+    const funks = mapValues(obj, (n, k) => k.startsWith('$') && isFunctionDeclaration(n)
+        ? compileFunction(scope, n, pointer(path, k))
+        : compileTree(scope, n, pointer(path, k)));
     return ({ vars, input }) => {
         const localVars = {};
         const extendedVars = { ...vars };

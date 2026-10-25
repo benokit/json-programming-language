@@ -22,4 +22,15 @@ lint({ $str: ['\\ needless escape'] }); // => [{ severity: 'warning', code: 'nee
 ```
 
 `compile` throws a `LambdaJSONError` (with `code` and a JSON Pointer `path`) for a malformed program.
-See the language documentation for the full reference and the migration notes from 1.x.
+Problems found while a program runs throw a `LambdaJSONRuntimeError` (also with `code` and `path`).
+See the language documentation for the full reference and the migration notes.
+
+## Changes in 3.0
+
+* **Breaking:** arithmetic (`$sum`, `$subtract`, `$multiply`, `$divide`) and ordering (`$lt`, `$lte`, `$gt`, `$gte`)
+  throw `LambdaJSONRuntimeError` (`missing-operand`) on a `null` or `undefined` operand instead of passing it on.
+* **Breaking:** `$eq` and `$neq` compare deeply, by value.
+* Functions with named parameters: `{ "$let": { "$f": { "$fn": { "as": ["a", "b"], "body": … } } }, "$f": [1, 2] }`;
+  `#` in the body stays the caller's input.
+* New primitives: `$round`, `$min`, `$max`, `$count`, `$find`, `$unique`, `$pick`, `$omit`, `$lower`, `$upper`, `$trim`, `$isNil`.
+* `signatureOf(name)` returns the declared types of a primitive; `typed(primitive, { takes, returns })` declares them for custom ones.

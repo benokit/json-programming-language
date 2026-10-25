@@ -1,6 +1,6 @@
 
 import { expect } from 'chai';
-import { compile, lint, LambdaJSONError } from '../src/js-compiler.js'
+import { compile, lint, signatureOf, LambdaJSONError, LambdaJSONRuntimeError } from '../src/js-compiler.js'
 
 function example(description, { program, cases, input, output }, only = false) {
     const q = only ? it.only : it;
@@ -924,6 +924,90 @@ describe('pure json programming language', () => {
 
         it('does not look inside $literal', () => {
             expect(lint({ $literal: { $nope: '\\x' } })).to.deep.equal([]);
+        });
+    });
+
+    describe('named function parameters', () => {
+        example('a $fn function binds its argument and keeps the caller input', {
+            program: {
+                $let: { $scale: { $fn: { as: 'v', body: { $multiply: ['@v', '#.factor'] } } } },
+                $scale: '#.n'
+            },
+            input: { n: 4, factor: 3 },
+            output: 12
+        });
+
+        example('several names bind the items of the argument', {
+            program: {
+                $let: { $add: { $fn: { as: ['a', 'b'], body: { $sum: ['@a', '@b', '#.c'] } } } },
+                $add: ['#.a', '#.b']
+            },
+            input: { a: 1, b: 2, c: 10 },
+            output: 13
+        });
+
+        it('a wrong argument count fails at run time', () => {
+            const f = compile({ $let: { $f: { $fn: { as: ['a', 'b'], body: '@a' } } }, $f: [1] });
+            expect(() => f(null)).to.throw(LambdaJSONRuntimeError);
+        });
+
+        it('a malformed $fn is an error', () => {
+            expect(() => compile({ $let: { $f: { $fn: { as: 'a' } } }, $f: 1 })).to.throw(LambdaJSONError).with.property('code', 'invalid-function');
+        });
+    });
+
+    describe('strict operands', () => {
+        for (const op of ['$sum', '$subtract', '$multiply', '$divide', '$lt', '$lte', '$gt', '$gte']) {
+            it(`${op} fails on a missing path`, () => {
+                const f = compile({ [op]: [3, '#.missing'] });
+                try {
+                    f({});
+                } catch (error) {
+                    expect(error).to.be.instanceOf(LambdaJSONRuntimeError);
+                    expect(error.code).to.equal('missing-operand');
+                    expect(error.path).to.equal(`/${op}`);
+                    return;
+                }
+                expect.fail('expected a failure');
+            });
+        }
+
+        example('present operands compute as before', { program: { $multiply: [3, '#.a'] }, input: { a: 2 }, output: 6 });
+        example('$eq may compare with a missing value', { program: { $eq: ['#.missing', null] }, input: {}, output: false });
+    });
+
+    describe('deep equality', () => {
+        example('$eq compares objects and arrays by value', {
+            program: { $eq: [{ a: [1, 2] }, '#'] },
+            input: { a: [1, 2] },
+            output: true
+        });
+        example('$neq is the negation', { program: { $neq: ['#.x', '#.y'] }, input: { x: { a: 1 }, y: { a: 1 } }, output: false });
+    });
+
+    describe('generic primitives', () => {
+        example('$round', { program: [{ $round: { value: '#', digits: 2 } }, { $round: { value: '#' } }], input: 2.345, output: [2.35, 2] });
+        example('$min and $max', { program: [{ $min: '#' }, { $max: '#' }], input: [3, 1, 2], output: [1, 3] });
+        example('$count', { program: [{ $count: { collection: '#' } }, { $count: { predicate: { $gt: ['#', 1] } } }], input: [1, 2, 3], output: [3, 2] });
+        example('$find', { program: { $find: { predicate: { $gt: ['@n', 1] }, as: 'n' } }, input: [1, 2, 3], output: 2 });
+        example('$unique is deep', { program: { $unique: '#' }, input: [{ a: 1 }, { a: 1 }, 2, 2], output: [{ a: 1 }, 2] });
+        example('$pick and $omit', {
+            program: [{ $pick: { keys: ['a'] } }, { $omit: { keys: ['a'] } }],
+            input: { a: 1, b: 2 },
+            output: [{ a: 1 }, { b: 2 }]
+        });
+        example('$lower, $upper, $trim', { program: [{ $lower: '#' }, { $upper: '#' }, { $trim: '#' }], input: ' Ab ', output: [' ab ', ' AB ', 'Ab'] });
+        example('$isNil', { program: [{ $isNil: '#.a' }, { $isNil: '#.b' }, { $isNil: '#.c' }], input: { b: null, c: 0 }, output: [true, true, false] });
+    });
+
+    describe('signatures', () => {
+        it('primitives declare their types', () => {
+            expect(signatureOf('$sum')).to.deep.equal({ takes: 'array<number>', returns: 'number' });
+            expect(signatureOf('$map').takes).to.include({ fn: 'function', over: 'array' });
+            expect(signatureOf('$map').returns).to.equal('array');
+        });
+        it('a custom primitive without a signature has none', () => {
+            expect(signatureOf('$mine', { $mine: f => f })).to.equal(undefined);
         });
     });
 });

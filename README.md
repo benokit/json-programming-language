@@ -114,6 +114,18 @@ binding can use earlier ones. A key starting with `$` declares a function, whose
 
 evaluates to `6`. Functions may call themselves and each other.
 
+A function can name its parameters instead, with `$fn`: `as` is a name or an array of names, bound to the
+argument (or to its items), and `#` stays the input of the caller, so the outer input isn't lost:
+
+```json
+{
+  "$let": { "$scale": { "$fn": { "as": "v", "body": { "$multiply": ["@v", "#.factor"] } } } },
+  "$scale": "#.n"
+}
+```
+
+On `{ "n": 4, "factor": 3 }` this evaluates to `12`. With `"as": ["a", "b"]` the call is `{ "$f": [x, y] }`.
+
 ### Lambdas and named parameters: `as`
 
 Higher-order primitives (`$map`, `$filter`, `$fold`, …) run a lambda per item. By default the item becomes the
@@ -154,6 +166,10 @@ Without `as`, `$fold` and `$zip` pass the pair as `#`, read as `#0` and `#1`.
 * `{ "$and": [a, b, …] }` and `{ "$or": [a, b, …] }` short-circuit and return the deciding value, like `&&` and `||`.
   `$and` of nothing is `true`, `$or` of nothing is `false`. Given an expression instead of an array, they apply to the array it evaluates to.
 * `{ "$not": x }` is the boolean negation (`$negate` is the same).
+* `$eq` and `$neq` compare by value, deeply: `{ "$eq": [{ "a": [1] }, "#"] }` is true for `{ "a": [1] }`.
+* Arithmetic (`$sum`, `$subtract`, `$multiply`, `$divide`) and ordering (`$lt`, `$lte`, `$gt`, `$gte`) fail with a
+  `LambdaJSONRuntimeError` (code `missing-operand`, `path` the JSON Pointer of the call) when an operand is `null`
+  or `undefined`, typically a path missing in the input. `$eq` and `$isNil` still accept missing values.
 
 ```json
 {
@@ -210,7 +226,24 @@ Without `as`, `$fold` and `$zip` pass the pair as `#`, read as `#0` and `#1`.
 | `$replace` | `{ regex, substitute, string=#, global? }` |
 | `$printf` | `{ template, args=# }` |
 | `$parseInt`, `$parseFloat` | expression |
+| `$round` | `{ value=#, digits? }` |
+| `$min`, `$max`, `$unique` | array |
+| `$count` | `{ predicate?, collection=#, as? }` |
+| `$find` | `{ predicate, collection=#, as? }` |
+| `$pick`, `$omit` | `{ keys, object=# }` |
+| `$lower`, `$upper`, `$trim` | string |
+| `$isNil` | expression |
 | `$literal` | any value, not evaluated |
+
+---
+
+## Signatures
+
+Every built-in primitive declares its types: `signatureOf('$sum')` is `{ takes: 'array<number>', returns: 'number' }`,
+and `signatureOf('$map')` has `takes: { fn: 'function', over: 'array', as: 'names' }` and `returns: 'array'`.
+Types are `any`, `number`, `string`, `boolean`, `object`, `function`, `names`, `array` and `array<T>`. Tools use
+them to infer the output type of a program. A custom primitive declares its own with `typed(primitive, { takes, returns })`;
+without it `signatureOf` returns `undefined`.
 
 ---
 
@@ -219,6 +252,8 @@ Without `as`, `$fold` and `$zip` pass the pair as `#`, read as `#0` and `#1`.
 `compile` checks the structure of a program and throws a `LambdaJSONError` for the first problem.
 The error has a `code` (for example `unknown-function`, `mixed-call`, `unknown-parameter`) and a `path`,
 a JSON Pointer to the offending node.
+
+Problems found while a program runs throw a `LambdaJSONRuntimeError` with the same `code` and `path`.
 
 `lint(program, primitives)` returns every problem without throwing: the structural error, if any, and
 warnings for needless escapes.
@@ -312,6 +347,11 @@ const customPrimitives = {
 `context.compile(tree, ...pathSteps)` and reports problems with `context.fail(message)`. `$if` and `$and` are built this way.
 
 ---
+
+## Migrating from 2.x
+
+* Arithmetic and ordering primitives now throw `LambdaJSONRuntimeError` (`missing-operand`) on `null`/`undefined` operands; guard with `$coalesce` or `$if` where a missing value was expected.
+* `$eq` and `$neq` compare by value instead of identity.
 
 ## Migrating from 1.x
 
