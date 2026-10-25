@@ -198,7 +198,8 @@ function createEngine(prims, report) {
                 lambdas[k] = [v, argPath];
                 continue;
             }
-            types[k] = tree(env, v, argPath);
+            // an untyped argument may be a lambda of `as`: bind its names to any value
+            types[k] = tree(takes[k] === undefined && value.as !== undefined ? bind(env, value.as) : env, v, argPath);
             if (takes[k] !== undefined) check(toType(takes[k]), types[k], argPath, `'${k}'`);
         }
         for (const spec of prim.params) {
@@ -216,6 +217,11 @@ function createEngine(prims, report) {
         }
         if (rule?.result) return rule.result(types, bodies, path);
         return returnsOf(signature, types);
+    }
+
+    function bind(env, as) {
+        const names = isArray(as) ? as : [as];
+        return { ...env, vars: { ...env.vars, ...Object.fromEntries(names.map(name => [name, ANY])) } };
     }
 
     function lambda(env, [node, path], as, args, input = args[0] ?? ANY) {
@@ -280,11 +286,17 @@ function createEngine(prims, report) {
 
     const mergeObjects = types => {
         const objects = types.map(nonNull);
-        if (!objects.every(t => t.type === 'object')) return OBJECT;
+        if (!objects.every(t => isAny(t) || t.type === 'object')) return OBJECT;
         const properties = {};
         const required = new Set();
         let closed = true;
         for (const t of objects) {
+            if (isAny(t)) {
+                // an unknown operand may override anything declared before it
+                Object.keys(properties).forEach(k => { properties[k] = ANY; });
+                closed = false;
+                continue;
+            }
             for (const [k, p] of Object.entries(t.properties ?? {})) {
                 const previous = properties[k];
                 properties[k] = previous && nonNull(previous).type === 'object' && nonNull(p).type === 'object' ? mergeObjects([previous, p]) : p;
@@ -309,6 +321,8 @@ function createEngine(prims, report) {
         return result;
     };
 
+    const isArrayType = t => nonNull(t).type === 'array';
+
     const RESULTS = {
         $in: a => a,
         $return: a => a,
@@ -327,7 +341,7 @@ function createEngine(prims, report) {
             const keys = o.type === 'object' && o.additionalProperties === false ? Object.keys(o.properties ?? {}) : null;
             return arrayOf(keys && keys.length > 0 ? { type: 'string', enum: keys } : STRING);
         },
-        $values: a => arrayOf(valueOf(a)),
+        $values: a => arrayOf(isArrayType(a) ? itemOf(a) : valueOf(a)),
         $merge: a => mergeObjects(operands(undefined, a, '').map(o => o.type)),
         $coalesce: a => {
             const list = nonNull(a);

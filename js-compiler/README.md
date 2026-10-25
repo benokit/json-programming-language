@@ -32,6 +32,13 @@ and the errors and warnings (impossible paths, possibly missing operands, mismat
 comparisons, unbound variables) found from the type of the input, without running the program.
 See the language documentation.
 
+## Changes in 3.1.1
+
+* `infer`: an impossible segment in some members of a union yields a missing value (`T | null`) instead of being dropped.
+* `infer`: the names of `as` are bound to any value in the arguments of a primitive whose parameters aren't typed.
+* `$get`, `$keys` and `$values` are typed to accept arrays as well as objects; `$get`'s `path` may be a number.
+* `infer`: `$merge` with an operand of unknown type is open, and earlier properties become unknown.
+
 ## Changes in 3.1
 
 * `infer(program, { input, vars, primitives })`: type inference with errors and warnings before a program runs.

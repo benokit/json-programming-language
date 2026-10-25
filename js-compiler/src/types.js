@@ -265,7 +265,8 @@ export function walkSegment(t, k) {
         : walkMember(m, k));
     const real = results.filter(r => !r.isNull);
     if (real.length > 0 && real.every(r => r.error)) return { error: real[0].error };
-    return { type: union(...results.filter(r => !r.error).map(r => r.type)) };
+    // a member where the segment can't exist yields a missing value at run time
+    return { type: union(...results.filter(r => !r.error).map(r => r.type), ...(results.some(r => r.error) ? [NULL] : [])) };
 }
 
 /** Walks a path; calls `fail(message)` at the first impossible segment and continues with null. */

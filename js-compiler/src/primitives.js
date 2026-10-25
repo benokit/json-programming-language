@@ -200,6 +200,7 @@ export const typed = (primitive, signature, infer) => {
 const sig = (takes, returns) => ({ takes, returns });
 const over = (fn, collection, returns, extra = {}) => sig({ [fn]: 'function', [collection]: collection === 'of' ? 'object' : 'array', ...extra, as: 'names' }, returns);
 const numbers = 'array<number>';
+const container = { anyOf: [{ type: 'object' }, { type: 'array' }] };
 
 const signatures = {
     $literal: sig('any', 'any'), $: sig('any', 'function'), $in: sig('any', 'any'), $return: sig('any', 'any'),
@@ -223,9 +224,9 @@ const signatures = {
     $zip: sig({ with: 'function', sequences: 'array<array>', as: 'names' }, 'array'),
     $fold: sig({ with: 'function', init: 'any', collection: 'array', as: 'names' }, 'any'),
     $head: sig('array', 'any'), $tail: sig('array', 'array'), $concat: sig('array<array>', 'array'),
-    $keys: sig('object', 'array<string>'), $values: sig('object', 'array'), $merge: sig('array<object>', 'object'),
+    $keys: sig(container, 'array<string>'), $values: sig(container, 'array'), $merge: sig('array<object>', 'object'),
     $coalesce: sig('array', 'any'),
-    $get: sig({ object: 'object', path: 'string' }, 'any'),
+    $get: sig({ object: container, path: { anyOf: [{ type: 'string' }, { type: 'number' }] } }, 'any'),
     $includes: sig({ collection: 'array', value: 'any' }, 'boolean'),
     $str: sig('any', 'string'),
     $join: sig({ separator: 'string', strings: 'array' }, 'string'),

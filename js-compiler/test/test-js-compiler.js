@@ -1,6 +1,6 @@
 
 import { expect } from 'chai';
-import { compile, lint, infer, typed, signatureOf, LambdaJSONError, LambdaJSONRuntimeError } from '../src/js-compiler.js'
+import { compile, lint, infer, typed, named, signatureOf, LambdaJSONError, LambdaJSONRuntimeError } from '../src/js-compiler.js'
 
 function example(description, { program, cases, input, output }, only = false) {
     const q = only ? it.only : it;
@@ -1107,6 +1107,38 @@ describe('pure json programming language', () => {
             const r = infer({ $jion: [] });
             expect(r.type).to.deep.equal({});
             expect(r.problems.map(p => p.code)).to.deep.equal(['unknown-function']);
+        });
+
+        describe('deviations fixed in 3.1.1', () => {
+            it('an impossible segment in some members of a union yields null', () => {
+                const input = { type: 'object', required: ['a'], properties: { a: { anyOf: [{ type: 'string' }, { type: 'object', required: ['b'], additionalProperties: false, properties: { b: { type: 'number' } } }] } } };
+                const r = infer({ $sum: [1, '#.a.b'] }, { input });
+                expect(infer('#.a.b', { input }).type).to.deep.equal({ anyOf: [{ type: 'number' }, { type: 'null' }] });
+                expect(r.problems.map(p => `${p.code} ${p.path}`)).to.deep.equal(['possibly-missing-operand /$sum/1']);
+            });
+
+            it('a primitive without a signature binds the names of as to any value', () => {
+                const primitives = { $each: named(['fn', 'over=#', 'as?'], ({ fn, over }) => x => over(x).map(v => fn(x, v))) };
+                const r = infer({ $each: { over: '#', as: 'v', fn: '@v' } }, { primitives });
+                expect(r.problems).to.deep.equal([]);
+            });
+
+            it('$get, $keys and $values accept arrays', () => {
+                const input = { type: 'array', items: { type: 'number' } };
+                expect(infer({ $get: { object: '#', path: '0' } }, { input }).problems).to.deep.equal([]);
+                expect(infer({ $keys: '#' }, { input }).problems).to.deep.equal([]);
+                expect(infer({ $values: '#' }, { input }).type).to.deep.equal({ type: 'array', items: { type: 'number' } });
+            });
+
+            it('$merge with an unknown operand is open and forgets earlier properties', () => {
+                const closed = { type: 'object', required: ['x'], additionalProperties: false, properties: { x: { type: 'number' } } };
+                const input = { type: 'object', required: ['a'], properties: { a: closed } };
+                const { type } = infer({ $merge: ['#.a', '#.b', { y: 'z' }] }, { input });
+                expect(type.additionalProperties).to.equal(undefined);
+                expect(type.properties.x).to.deep.equal({});
+                expect(type.properties.y).to.deep.equal({ type: 'string', const: 'z' });
+                expect(type.required).to.have.members(['x', 'y']);
+            });
         });
 
         it('takes the types of outer variables', () => {
