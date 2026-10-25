@@ -269,14 +269,14 @@ export function walkSegment(t, k) {
     return { type: union(...results.filter(r => !r.error).map(r => r.type), ...(results.some(r => r.error) ? [NULL] : [])) };
 }
 
-/** Walks a path; calls `fail(message)` at the first impossible segment and continues with null. */
+/** Walks a path; calls `fail(message)` at the first impossible segment and continues with any value, so the problem isn't reported twice. */
 export function walkPath(t, segments, fail) {
     let current = t;
     for (const segment of segments) {
         const step = walkSegment(current, segment);
         if (step.error) {
             fail(step.error);
-            return NULL;
+            return ANY;
         }
         current = step.type;
     }

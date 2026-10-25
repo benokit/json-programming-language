@@ -32,6 +32,10 @@ and the errors and warnings (impossible paths, possibly missing operands, mismat
 comparisons, unbound variables) found from the type of the input, without running the program.
 See the language documentation.
 
+## Changes in 3.1.2
+
+* `infer`: after an impossible path the walk continues with any value, so the problem isn't reported a second time where the value is used.
+
 ## Changes in 3.1.1
 
 * `infer`: an impossible segment in some members of a union yields a missing value (`T | null`) instead of being dropped.

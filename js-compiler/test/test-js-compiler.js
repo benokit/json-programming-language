@@ -1035,7 +1035,12 @@ describe('pure json programming language', () => {
         it('reports an impossible path', () => {
             const r = run({ $return: '#.recrod.id' });
             expect(codes(r)).to.deep.equal(['error unknown-path /$return']);
-            expect(r.type).to.deep.equal({ type: 'null' });
+            expect(r.type).to.deep.equal({});
+        });
+
+        it('an impossible path does not cascade into the expression that uses it', () => {
+            expect(codes(run({ $gt: [1, '#.selff.min'] }))).to.deep.equal(['error unknown-path /$gt/1']);
+            expect(codes(run({ $get: { path: 'lines.0.pricee' } }))).to.deep.equal(['error unknown-path /$get/path']);
         });
 
         it('an unknown input never causes a problem', () => {
