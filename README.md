@@ -51,176 +51,194 @@ LambdaJSON programs are plain JSON values. They are built from standard JSON typ
 * `string`
 * `number`
 * `boolean`
+* `null`
 * `array`
 * `object`
 
-On top of that, LambdaJSON defines **conventions on property names and string suffixes** which give these values operational semantics.
+On top of that, LambdaJSON defines **conventions on property names and string prefixes** which give these values operational semantics.
 
-### Property name conventions
+### Code and data
 
-* **Primitive or user-defined function call**
+The rule is one character: **an object with a key starting with `$` is a call; every other object is data.**
 
-  A property whose name begins with `$` (for example `$sum`, `$return`) denotes a function call:
+* A **call** has exactly one call key, optionally beside `$let`:
 
-  * It must correspond either to:
-    * a **primitive function** (one of the provided primitives), or
-    * a **locally declared function** in a preceding `$let` block.
-  * The value associated with this property is the argument(s) to the function.
+  ```json
+  { "$sum": ["#.a", "#.b"] }
+  { "$let": { "base": 3 }, "$sum": ["@base", "@base"] }
+  ```
 
-* **Local bindings**
+  The call key names a **primitive** or a **function declared in an enclosing `$let`**.
+  Anything else is a compile error: an unknown name, two calls in one object, or a `$` key beside plain keys.
 
-  Special property `$let` is reserved for **local variable and function declarations** and must appear in the same object together with a function call.
+* A **plain object** is evaluated key by key. To produce a key starting with `$`, escape it with `\`:
+  `{ "\\$id": "#.id", "name": "#.name" }` produces `{ "$id": …, "name": … }`.
 
-* **Literal value**
+* `{ "$literal": <value> }` evaluates to `<value>` as-is, without interpreting it.
 
-  An object of the form `{ "$literal": <expr> }` evaluates to `<expr>` as-is, without interpreting it as a program node.
+### Calling conventions
 
-  Example: `{ "$literal": "#.name" }` evaluates to the string `"#.name"`.
+Each primitive takes one argument. A primitive either takes it **as an expression** (`$sum`, `$head`, `$str`, …)
+or **declares named parameters** (`$map`, `$join`, `$get`, …), passed as an object:
 
-* **Function configuration**
+```json
+{ "$map": { "over": "#.lines", "fn": { "$sum": ["#", 1] } } }
+```
 
-  A property whose name ends with `_` (for example `_with`) must correspond to a **configuration property** of the function called in the same object.
+Unknown or missing parameters are compile errors. Parameters with a default of the input (marked `=#` in the
+reference below) may be left out. Before version 2 named parameters were written with a leading `_`
+(`"_over"`); that spelling is no longer accepted.
 
-  The exact set of supported config properties is defined per primitive (see `./src/primitives.js`).
+### String values
 
-* **Escape**
+* **`#`, input reference.** `"#"` is the input, `"#.name"` a dotted path into it, `"#0.name"` an index (0–9) followed by a path.
+* **`@`, local reference.** `"@total"` or `"@line.price"` reads a name bound by `$let` or by a lambda's `as`.
+* **`\`, escape.** The leading `\` is dropped: `"\\#.name"` is the string `"#.name"`. Only strings starting
+  with `#`, `@` or `\` need it; `lint` reports needless escapes.
+* **Any other string** is a literal value.
 
-  A property name beginning with `\` is treated literally: the leading `\` is stripped and the remainder becomes the output key.
+### Local bindings: `$let`
 
-  Example: `"\$name"` produces a property named `$name` in the output object.
+`$let` binds names for the call beside it and everything inside it. Bindings are evaluated in order, so a
+binding can use earlier ones. A key starting with `$` declares a function, whose input `#` is its argument:
 
-### String value conventions
+```json
+{
+  "$let": {
+    "base": { "$sum": [1, 2] },
+    "$double": { "$multiply": ["#", 2] }
+  },
+  "$double": "@base"
+}
+```
 
-String values are interpreted according to their prefix:
+evaluates to `6`. Functions may call themselves and each other.
 
-* **`@` — local variable reference**
+### Lambdas and named parameters: `as`
 
-  A string starting with `@` is a reference to a variable declared in a preceding `$let` block anywhere up in the execution tree.
-  The substring following `@` is treated as a dotted path into the bound value.
+Higher-order primitives (`$map`, `$filter`, `$fold`, …) run a lambda per item. By default the item becomes the
+lambda's input `#`. With `as`, the lambda's arguments get names instead, and `#` stays the input of the
+enclosing expression, like `(fn [line] …)` in Lisp:
 
-  Example: `"@address.street.number"`.
+```json
+{
+  "$map": {
+    "over": "#.lines",
+    "as": "line",
+    "fn": { "$multiply": ["@line.quantity", "#.priceFactor"] }
+  }
+}
+```
 
-* **`#` — input reference**
+`as` is a name or an array of names bound to the lambda's arguments in order:
 
-  A string starting with `#` refers to the function input.
-  The substring following `#` is interpreted as a dotted path into the input object.
+| primitive | arguments |
+|---|---|
+| `$map`, `$filter`, `$any`, `$all` | item, index |
+| `$mapValues` | value, key |
+| `$fold` | accumulator, item |
+| `$zip` | item of the first sequence, item of the second |
+| `$group`, `$toDictionary`, `$ascending`, `$descending`, `$take`, `$apply` | item |
 
-  Example (object input): `"#.name"`
-  Example (array input, index 0–9): `"#0.name"`.
+```json
+{ "$fold": { "collection": "#.items", "as": ["total", "item"], "init": 0, "with": { "$sum": ["@total", "@item.price"] } } }
+```
 
-* **`\` — escape**
+Without `as`, `$fold` and `$zip` pass the pair as `#`, read as `#0` and `#1`.
 
-  A string starting with `\` is treated literally: the leading `\` is stripped and the remainder is the value.
-  Use this to prevent `#` or `@` from being interpreted as a reference, or `\\` to produce a literal backslash.
+### Conditionals and logic
 
-  Example: `"\#.name"` evaluates to the string `"#.name"`.
+* `{ "$if": [test, then, else] }`: the `else` is optional and defaults to `null`. Only the chosen branch is evaluated.
+* `{ "$cond": [[test, value], …] }`: the value of the first clause whose test is truthy, or `null`.
+  The string `"else"` is truthy, so `["else", value]` reads as a default clause.
+* `{ "$and": [a, b, …] }` and `{ "$or": [a, b, …] }` short-circuit and return the deciding value, like `&&` and `||`.
+  `$and` of nothing is `true`, `$or` of nothing is `false`. Given an expression instead of an array, they apply to the array it evaluates to.
+* `{ "$not": x }` is the boolean negation (`$negate` is the same).
 
-* **other strings** are treated as literal values.
+```json
+{
+  "$cond": [
+    [{ "$lt": ["#.age", 13] }, "child"],
+    [{ "$lt": ["#.age", 18] }, "teen"],
+    ["else", "adult"]
+  ]
+}
+```
 
-### Evaluation rules (informal)
+### Strings
 
-* **Numbers / booleans**
-  Evaluated as themselves.
+`{ "$str": [a, b, …] }` concatenates its values; `null` and missing values become `""`, objects become JSON.
 
-* **Arrays**
-  Each element is evaluated; the result is an array of evaluated elements.
+```json
+{ "$str": ["#.id", " has no trait ", "#.trait"] }
+```
 
-* **Objects**
+`$join` joins with a separator, `$printf` formats a template.
 
-  * If any property name starts with `$`, the object is treated as a **function call node**:
+---
 
-    * the corresponding primitive or user-defined function is executed.
-    * additional `_`-prefixed properties in the value associated with the function property provide configuration.
-    * `$let` may provide local declarations.
-  * Otherwise, each property is evaluated independently and the resulting object with evaluated properties is returned.
+## Primitives
 
-Programs are thus **direct representations of execution trees**: each object with a `$…` property represents one node in the tree.
+`name` is required, `name=#` defaults to the input, `name?` is optional.
+
+| primitive | argument |
+|---|---|
+| `$return`, `$in` | expression, returned as is |
+| `$` | expression: a lambda `v => …` with `v` as `#`, used in `$pipeline` |
+| `$pipeline` | array of lambdas, applied to the input in turn |
+| `$apply` | `{ fn, to=#, as? }` |
+| `$if`, `$cond`, `$and`, `$or` | see above |
+| `$not`, `$negate` | expression |
+| `$eq`, `$neq`, `$lt`, `$lte`, `$gt`, `$gte` | `[a, b]` |
+| `$sum` | array of numbers |
+| `$subtract`, `$multiply`, `$divide` | `[a, b]` |
+| `$map` | `{ fn, over=#, as? }` |
+| `$mapValues` | `{ fn, of=#, as? }` |
+| `$filter`, `$any`, `$all` | `{ predicate, collection=#, as? }` |
+| `$group`, `$toDictionary` | `{ by, collection=#, as? }` |
+| `$ascending`, `$descending` | `{ by?, collection=#, as? }` |
+| `$take` | `{ while?, count?, from=#, as? }` |
+| `$zip` | `{ with?, sequences=#, as? }` |
+| `$fold` | `{ with, init?, collection=#, as? }` |
+| `$head`, `$tail`, `$concat`, `$keys`, `$values`, `$merge`, `$coalesce` | expression |
+| `$get` | `{ object=#, path }` |
+| `$includes` | `{ collection=#, value }` |
+| `$str` | expression or array |
+| `$join` | `{ separator?, strings=# }` |
+| `$split` | `{ separator, string=# }` |
+| `$match`, `$isMatch` | `{ pattern, string=# }` |
+| `$replace` | `{ regex, substitute, string=#, global? }` |
+| `$printf` | `{ template, args=# }` |
+| `$parseInt`, `$parseFloat` | expression |
+| `$literal` | any value, not evaluated |
+
+---
+
+## Errors and lint
+
+`compile` checks the structure of a program and throws a `LambdaJSONError` for the first problem.
+The error has a `code` (for example `unknown-function`, `mixed-call`, `unknown-parameter`) and a `path`,
+a JSON Pointer to the offending node.
+
+`lint(program, primitives)` returns every problem without throwing: the structural error, if any, and
+warnings for needless escapes.
+
+```js
+import { lint } from "lambdajson-js";
+
+lint({ "$str": ["\\ has no trait ", "#.trait"] });
+// => [{ severity: "warning", code: "needless-escape", path: "/$str/0", message: "the string ' has no trait ' needs no escape" }]
+```
 
 ---
 
 ## Examples
 
-### 1. Pure expression: sum of two inputs
-
-Compute `input.a + input.b` using the `$sum` primitive and `$return`:
+### Picking and transforming fields
 
 ```json
 {
-    "$sum": ["#.a", "#.b"]
-}
-```
-
-Compiled to JS and invoked:
-
-```js
-const program = {
-    "$sum": ["#.a", "#.b"]
-};
-
-const f = compile(program);
-
-f({ a: 2, b: 3 }); // => 5
-```
-
----
-
-### 2. Using `$let` and local variables
-
-Bind an intermediate value and reuse it twice:
-
-```json
-{
-  "$let": {
-    "base": {
-      "$sum": [1, 2]
-    }
-  },
-  "$sum": ["@base", "@base"]
-}
-```
-
-Explanation:
-
-* `$let.base` defines a local variable `base` with value `1 + 2 = 3`.
-* returned value is `base + base = 6`.
-
----
-
-### 3. Mapping over an input array
-
-Assuming a primitive that can map a function over an array (e.g. `$map`) and a primitive `$sum`, we can increment each value in the input array by 1:
-
-```json
-{
-  "$map": {
-    "_fn": {
-      "$sum": ["#.value", 1]
-    },
-    "_over": "#"
-  }
-}
-```
-
-Intended meaning (in JS-ish pseudocode):
-
-```js
-input.map(value => value + 1)
-```
-
----
-
-### 4. Nested objects and input paths
-
-Picking and transforming fields from an input object:
-
-```json
-{
-  "fullName": {
-    "$join": {
-        "_separator": " ", 
-        "_strings":  ["#.firstName", "#.lastName"]
-    }
-  },
+  "fullName": { "$join": { "separator": " ", "strings": ["#.firstName", "#.lastName"] } },
   "streetNumber": "#.address.street.number",
   "tags": ["vip", "#.segment"]
 }
@@ -247,33 +265,61 @@ the program evaluates to:
 }
 ```
 
+### Recursion
+
+```json
+{
+  "$let": {
+    "$fib": {
+      "$if": [
+        { "$lte": ["#", 2] },
+        1,
+        { "$sum": [{ "$fib": { "$subtract": ["#", 1] } }, { "$fib": { "$subtract": ["#", 2] } }] }
+      ]
+    }
+  },
+  "$fib": "#"
+}
+```
+
 ---
 
 ## Custom primitives
 
-You can extend LambdaJSON by adding custom primitives and passing them to the compiler.
-
-Example primitive: `$multiply`, taking two arguments:
+Pass custom primitives to the compiler. A primitive taking its argument as an expression is a function
+from the compiled argument to a function of the scope `x` (the argument is evaluated with `f(x)`):
 
 ```js
-const multiply = f => x => {
-  const [x, y] = f(x);
-  return x * y;
+const customPrimitives = {
+  "$product": f => x => f(x).reduce((a, b) => a * b, 1)
 };
+
+compile({ "$product": "#" }, customPrimitives)([2, 3, 4]); // => 24
+```
+
+A primitive with named parameters declares them with `named`. Lambdas are called with `call`, which binds `as`:
+
+```js
+import { compile, named, call } from "lambdajson-js";
 
 const customPrimitives = {
-  "$multiply": multiply
+  "$count": named(["predicate", "collection=#", "as?"], ({ predicate, collection, as }) => x =>
+    collection(x).filter(v => call(predicate, as, x, [v])).length)
 };
-
-const program = {
-  "$return": {
-    "$multiply": [2, 3]
-  }
-};
-
-const f = compile(program, customPrimitives);
-f([2, 3]); // => 6
 ```
+
+`special(form)` defines a special form: `form(rawArgument, context)` compiles the parts it needs with
+`context.compile(tree, ...pathSteps)` and reports problems with `context.fail(message)`. `$if` and `$and` are built this way.
+
+---
+
+## Migrating from 1.x
+
+* Drop the `_` from named parameters: `{ "_strings": … }` becomes `{ "strings": … }`. The old spelling is a compile error (`unknown-parameter`) whose message names the new one.
+* `$conditional` is removed: `{ "$conditional": { "_if": t, "_then": a, "_else": b } }` becomes `{ "$if": [t, a, b] }`, and nested conditionals read better as `$cond`. String-building `$join`s read better as `$str`.
+* An object with a `$` key beside other keys used to be a plain object; it is now an error. Escape the key (`"\\$id"`) if a plain object was meant.
+* Calls to undeclared functions, unknown parameters and missing required parameters are now compile errors instead of failures at run time.
+* A custom primitive that is a plain function always receives its argument as one compiled expression; an object with `_` keys is plain data. Declare named parameters with `named(params, impl)` instead.
 
 ---
 
@@ -288,8 +334,7 @@ The JS compiler:
 High-level API:
 
 ```js
-import { compile } from "./src/js-compiler.js";
-import { primitives } from "./src/primitives.js";
+import { compile, lint } from "./src/js-compiler.js";
 
 const program = ...;
 const customPrimitives = ...

@@ -5,13 +5,21 @@ LambdaJSON is a JSON based pure functional programming language: [https://github
 ## Quick start
 
 ```js
-import { compile } from 'lambdajson-js';
+import { compile, lint } from 'lambdajson-js';
 
 const program = {
-    $sum: ['#', 2]
+    $map: {
+        over: '#.lines',
+        as: 'line',
+        fn: { $str: ['@line.name', ' x', { $multiply: ['@line.quantity', '#.factor'] }] }
+    }
 };
 const f = compile(program);
 
-console.log(f(1)); // => 3
+console.log(f({ factor: 2, lines: [{ name: 'bolt', quantity: 3 }] })); // => ['bolt x6']
+
+lint({ $str: ['\\ needless escape'] }); // => [{ severity: 'warning', code: 'needless-escape', … }]
 ```
 
+`compile` throws a `LambdaJSONError` (with `code` and a JSON Pointer `path`) for a malformed program.
+See the language documentation for the full reference and the migration notes from 1.x.
