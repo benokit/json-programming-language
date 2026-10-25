@@ -8,6 +8,7 @@ export {
     LambdaJSONError
 }
 export { primitives, named, special, call, typed, LambdaJSONRuntimeError } from './primitives.js';
+export { infer } from './infer.js';
 
 /**
  * A problem in the structure of a program, found while compiling it.

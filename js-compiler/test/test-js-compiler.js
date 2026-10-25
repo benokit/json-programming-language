@@ -1,6 +1,6 @@
 
 import { expect } from 'chai';
-import { compile, lint, signatureOf, LambdaJSONError, LambdaJSONRuntimeError } from '../src/js-compiler.js'
+import { compile, lint, infer, typed, signatureOf, LambdaJSONError, LambdaJSONRuntimeError } from '../src/js-compiler.js'
 
 function example(description, { program, cases, input, output }, only = false) {
     const q = only ? it.only : it;
@@ -1008,6 +1008,109 @@ describe('pure json programming language', () => {
         });
         it('a custom primitive without a signature has none', () => {
             expect(signatureOf('$mine', { $mine: f => f })).to.equal(undefined);
+        });
+    });
+
+    describe('infer', () => {
+        const order = {
+            type: 'object',
+            required: ['id', 'lines'],
+            additionalProperties: false,
+            properties: {
+                id: { type: 'string' },
+                qty: { type: 'number' },
+                kind: { enum: ['a', 'b'] },
+                lines: { type: 'array', items: { type: 'object', required: ['price'], additionalProperties: false, properties: { price: { type: 'number' } } } }
+            }
+        };
+        const run = (program, options = {}) => infer(program, { input: order, ...options });
+        const codes = r => r.problems.map(p => `${p.severity} ${p.code} ${p.path}`);
+
+        it('walks paths through the input type', () => {
+            expect(run('#.id').type).to.deep.equal({ type: 'string' });
+            expect(run('#.qty').type).to.deep.equal({ anyOf: [{ type: 'number' }, { type: 'null' }] });
+            expect(run('#.lines.0.price').problems).to.deep.equal([]);
+        });
+
+        it('reports an impossible path', () => {
+            const r = run({ $return: '#.recrod.id' });
+            expect(codes(r)).to.deep.equal(['error unknown-path /$return']);
+            expect(r.type).to.deep.equal({ type: 'null' });
+        });
+
+        it('an unknown input never causes a problem', () => {
+            const r = infer({ $multiply: ['#.a.b', 2] });
+            expect(r.problems).to.deep.equal([]);
+            expect(r.type).to.deep.equal({ type: 'number' });
+        });
+
+        it('warns about a possibly missing operand, errors on a wrong one', () => {
+            expect(codes(run({ $multiply: ['#.qty', 2] }))).to.deep.equal(['warning possibly-missing-operand /$multiply/0']);
+            expect(codes(run({ $sum: ['#.id', 1] }))).to.deep.equal(['error type-mismatch /$sum/0']);
+        });
+
+        it('binds lambda parameters', () => {
+            const r = run({ $sum: { $map: { over: '#.lines', as: 'l', fn: '@l.price' } } });
+            expect(r.problems).to.deep.equal([]);
+            expect(r.type).to.deep.equal({ type: 'number' });
+            expect(codes(run({ $map: { over: '#.lines', fn: '#.pirce' } }))).to.deep.equal(['error unknown-path /$map/fn']);
+        });
+
+        it('infers a fold in two passes', () => {
+            const r = run({ $fold: { collection: '#.lines', as: ['t', 'i'], init: 0, with: { $sum: ['@t', '@i.price'] } } });
+            expect(r.type).to.deep.equal({ type: 'number' });
+        });
+
+        it('reports unbound variables and mismatched collections', () => {
+            expect(codes(run('@x'))).to.deep.equal(['error unknown-variable ']);
+            expect(codes(run({ $map: { over: '#.id', fn: '#' } }))).to.deep.equal(['error type-mismatch /$map/over']);
+        });
+
+        it('warns about impossible comparisons', () => {
+            expect(codes(run({ $eq: ['#.kind', 'c'] }))).to.deep.equal(['warning impossible-comparison /$eq']);
+            expect(codes(run({ $eq: ['#.kind', 'a'] }))).to.deep.equal([]);
+        });
+
+        it('infers functions at each call site', () => {
+            const program = {
+                $let: { $pair: { $fn: { as: ['a', 'b'], body: { $sum: ['@a', '@b'] } } } },
+                $pair: [1, 2]
+            };
+            expect(run(program).type).to.deep.equal({ type: 'number' });
+            const wrong = { $let: program.$let, $pair: [1] };
+            expect(codes(run(wrong))).to.deep.equal(['error wrong-argument-count /$pair']);
+        });
+
+        it('a recursive function has type any', () => {
+            const r = infer({ $let: { $f: { $if: [{ $lte: ['#', 1] }, 1, { $multiply: ['#', { $f: { $subtract: ['#', 1] } }] }] } }, $f: 5 });
+            expect(r.problems).to.deep.equal([]);
+        });
+
+        it('computes result types of primitives', () => {
+            expect(run({ $head: '#.lines' }).type.anyOf).to.have.length(2);
+            expect(run({ $keys: '#' }).type).to.deep.equal({ type: 'array', items: { type: 'string', enum: ['id', 'qty', 'kind', 'lines'] } });
+            expect(run({ $pick: { keys: ['id'], object: '#' } }).type).to.deep.include({ required: ['id'], additionalProperties: false });
+            expect(run({ $cond: [[{ $eq: ['#.id', 'x'] }, 1], ['else', 2]] }).type).to.deep.equal({ anyOf: [{ type: 'number', const: 1 }, { type: 'number', const: 2 }] });
+            expect(run({ $get: { path: 'lines.0.pirce' } }).problems.map(p => p.code)).to.deep.equal(['unknown-path']);
+        });
+
+        it('uses the signature of a custom primitive', () => {
+            const primitives = { $twice: typed(f => x => f(x) * 2, { takes: 'number', returns: 'number' }) };
+            expect(infer({ $twice: 3 }, { primitives }).type).to.deep.equal({ type: 'number' });
+            expect(infer({ $twice: 'a' }, { primitives }).problems.map(p => p.code)).to.deep.equal(['type-mismatch']);
+            const dynamic = { $same: typed(f => f, { takes: 'any' }, argument => argument) };
+            expect(infer({ $same: '#.id' }, { input: order, primitives: dynamic }).type).to.deep.equal({ type: 'string' });
+        });
+
+        it('includes the problems of lint; a structural error leaves the type open', () => {
+            expect(infer({ $str: ['\\ x'] }).problems.map(p => p.code)).to.deep.equal(['needless-escape']);
+            const r = infer({ $jion: [] });
+            expect(r.type).to.deep.equal({});
+            expect(r.problems.map(p => p.code)).to.deep.equal(['unknown-function']);
+        });
+
+        it('takes the types of outer variables', () => {
+            expect(infer('@limit', { vars: { limit: { type: 'number' } } }).type).to.deep.equal({ type: 'number' });
         });
     });
 });

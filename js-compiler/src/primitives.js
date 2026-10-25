@@ -188,11 +188,14 @@ const primitiveTable = {
  * `takes` is the type of the expression argument, or an object of parameter types for
  * named parameters; `returns` the type of the result. Types: `any`, `number`, `string`,
  * `boolean`, `object`, `function` (a lambda), `names` (the `as` parameter), `array` or `array<T>`.
- * A custom primitive declares its own with `typed`.
+ * A type (JSON Schema) is accepted wherever a notation is. A custom primitive declares its own with
+ * `typed(primitive, signature, infer?)`; `infer(argumentTypes, context)` computes the result type from the
+ * type of the argument (an object of parameter types for named parameters).
  */
-export const typed = (primitive, signature) => typeof primitive === 'function'
-    ? Object.assign(primitive, { signature })
-    : { ...primitive, signature };
+export const typed = (primitive, signature, infer) => {
+    const declared = infer ? { ...signature, infer } : signature;
+    return typeof primitive === 'function' ? Object.assign(primitive, { signature: declared }) : { ...primitive, signature: declared };
+};
 
 const sig = (takes, returns) => ({ takes, returns });
 const over = (fn, collection, returns, extra = {}) => sig({ [fn]: 'function', [collection]: collection === 'of' ? 'object' : 'array', ...extra, as: 'names' }, returns);

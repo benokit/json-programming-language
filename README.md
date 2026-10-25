@@ -247,6 +247,38 @@ without it `signatureOf` returns `undefined`.
 
 ---
 
+## Type inference
+
+`infer(program, { input, vars, primitives })` computes the type of a program's result from the type of its input,
+and lists the problems before it runs, without executing anything:
+
+```js
+import { infer } from "lambdajson-js";
+
+const input = { type: "object", required: ["lines"], additionalProperties: false,
+  properties: { lines: { type: "array", items: { type: "object", required: ["price"], properties: { price: { type: "number" } } } } } };
+
+infer({ $sum: { $map: { over: "#.lines", as: "l", fn: "@l.price" } } }, { input });
+// => { type: { type: "number" }, problems: [] }
+
+infer({ $return: "#.lnes" }, { input }).problems;
+// => [{ severity: "error", code: "unknown-path", path: "/$return", message: "'lnes' is not a property of the object (declared: lines)" }]
+```
+
+* `input` is the type of `#` (default `{}`, any value); `vars` the types of variables bound outside the program.
+* Types are JSON Schema restricted to `type`, `const`, `enum`, `items`, `prefixItems`, `properties`, `required`,
+  `additionalProperties` and `anyOf`, plus `{ "type": "function" }`. Resolve `$ref`, `allOf` and `oneOf` first;
+  other keywords are ignored. A missing value is `{ "type": "null" }`.
+* An unknown type (`{}`) never causes a problem; inference degrades to `{}`. **Errors** are certain: `unknown-path`,
+  `unknown-variable`, `type-mismatch`, `wrong-argument-count`, or a structural error from `lint` (then `type` is `{}`).
+  **Warnings** are possible: `possibly-missing-operand` (a nullable operand of arithmetic or ordering),
+  `impossible-comparison` (`$eq` of disjoint types), plus `lint`'s.
+* Functions declared in `$let` are inferred at each call; a recursive call has type `{}`.
+* A custom primitive's `typed(primitive, signature, infer?)` takes types as well as notation; `infer(argumentTypes, context)`
+  computes the result type from the argument's type (an object of parameter types for named parameters).
+
+---
+
 ## Errors and lint
 
 `compile` checks the structure of a program and throws a `LambdaJSONError` for the first problem.

@@ -25,6 +25,18 @@ lint({ $str: ['\\ needless escape'] }); // => [{ severity: 'warning', code: 'nee
 Problems found while a program runs throw a `LambdaJSONRuntimeError` (also with `code` and `path`).
 See the language documentation for the full reference and the migration notes.
 
+## Type inference
+
+`infer(program, { input, vars, primitives })` returns `{ type, problems }`: the JSON Schema type of the result
+and the errors and warnings (impossible paths, possibly missing operands, mismatched arguments, impossible
+comparisons, unbound variables) found from the type of the input, without running the program.
+See the language documentation.
+
+## Changes in 3.1
+
+* `infer(program, { input, vars, primitives })`: type inference with errors and warnings before a program runs.
+* `typed(primitive, signature, infer?)` accepts JSON Schema types as well as notation.
+
 ## Changes in 3.0
 
 * **Breaking:** arithmetic (`$sum`, `$subtract`, `$multiply`, `$divide`) and ordering (`$lt`, `$lte`, `$gt`, `$gte`)
