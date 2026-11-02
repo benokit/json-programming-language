@@ -32,6 +32,13 @@ and the errors and warnings (impossible paths, possibly missing operands, mismat
 comparisons, unbound variables) found from the type of the input, without running the program.
 See the language documentation.
 
+## Changes in 3.2.0
+
+* `infer`: the argument of a typed function is checked property by property, recursively. A property whose type is definitely disjoint from the declared one (wrong kind, literal outside `enum`/`const`) is a `type-mismatch` naming its path (`the argument.entityType is 5, expected string`). `any`, unknown and overlapping properties are not reported; optional properties of the argument type are skipped.
+* `infer`: new problem codes `missing-property` (a required key is absent) and `unknown-property` (a key where `additionalProperties` is `false`), reported only when the argument's type is exact (`additionalProperties: false`, as for object literals).
+* `infer`: items of an array literal are checked against the declared `items`/`prefixItems`.
+* Programs that passed before may now report these errors; each newly reported problem is a mismatch between the argument and the declared signature.
+
 ## Changes in 3.1.2
 
 * `infer`: after an impossible path the walk continues with any value, so the problem isn't reported a second time where the value is used.

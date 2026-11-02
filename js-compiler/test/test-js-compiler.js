@@ -1146,6 +1146,55 @@ describe('pure json programming language', () => {
             });
         });
 
+        describe('object arguments', () => {
+            const take = { type: 'object', properties: { entityType: { type: 'string' }, entityOperation: { type: 'string', enum: ['update', 'delete'] } }, required: ['entityType'], additionalProperties: false };
+            const primitives = { $f: typed(a => a, { takes: take, returns: { type: 'boolean' } }) };
+            const problems = (code, input = {}, takes) => infer(code, { input, primitives: takes ? { $f: typed(a => a, { takes }) } : primitives }).problems.map(p => `${p.code} ${p.path}: ${p.message}`);
+
+            it('accepts a valid object', () => {
+                expect(problems({ $f: { entityType: 'x', entityOperation: 'update' } })).to.deep.equal([]);
+            });
+            it('reports a property of the wrong type with its path', () => {
+                expect(problems({ $f: { entityType: 5, entityOperation: 'update' } })).to.deep.equal(['type-mismatch /$f/entityType: the argument.entityType is 5, expected string']);
+            });
+            it('reports a literal outside the enum', () => {
+                expect(problems({ $f: { entityType: 'x', entityOperation: 'updat' } })).to.have.length(1);
+                expect(problems({ $f: { entityType: 'x', entityOperation: 'updat' } })[0]).to.contain('argument.entityOperation');
+            });
+            it('reports an extra key of a closed object', () => {
+                expect(problems({ $f: { entityType: 'x', extra: 1 } })[0]).to.match(/^unknown-property \/\$f\/extra/);
+            });
+            it('reports a missing required key', () => {
+                expect(problems({ $f: { entityOperation: 'update' } })[0]).to.match(/^missing-property/);
+            });
+            it('reports a whole value of the wrong kind', () => {
+                expect(problems({ $f: 'text' })).to.have.length(1);
+            });
+            it('checks nested objects', () => {
+                const takes = { type: 'object', properties: { a: take } };
+                expect(problems({ $f: { a: { entityType: 1 } } }, {}, takes)[0]).to.contain('the argument.a.entityType is 1');
+            });
+            it('does not report a union property that overlaps', () => {
+                const takes = { type: 'object', properties: { a: { type: ['string', 'number'] } } };
+                expect(problems({ $f: { a: 1 } }, {}, takes)).to.deep.equal([]);
+            });
+            it('does not report an any property', () => {
+                const takes = { type: 'object', properties: { a: {} } };
+                expect(problems({ $f: { a: 1 } }, {}, takes)).to.deep.equal([]);
+            });
+            it('reports keys only for an exact argument type', () => {
+                const partial = { type: 'object', properties: { entityOperation: { type: 'string' } } };
+                expect(problems({ $f: '#' }, partial)).to.deep.equal([]);
+                const wrong = { type: 'object', required: ['entityType'], properties: { entityType: { type: 'number' } } };
+                expect(problems({ $f: '#' }, wrong)).to.have.length(1);
+            });
+            it('checks the items of an array literal', () => {
+                const takes = { type: 'object', properties: { list: { type: 'array', items: { type: 'string' } } } };
+                expect(problems({ $f: { list: ['a', 1] } }, {}, takes)[0]).to.contain('the argument.list[1] is 1');
+                expect(problems({ $f: { list: ['a', 'b'] } }, {}, takes)).to.deep.equal([]);
+            });
+        });
+
         it('takes the types of outer variables', () => {
             expect(infer('@limit', { vars: { limit: { type: 'number' } } }).type).to.deep.equal({ type: 'number' });
         });

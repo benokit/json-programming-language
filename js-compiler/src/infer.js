@@ -169,10 +169,49 @@ function createEngine(prims, report) {
         return [{ type: itemOf(array), path }];
     }
 
-    function check(expected, actual, path, what) {
+    function check(expected, actual, path, what, value) {
         if (disjoint(actual, expected)) {
             error('type-mismatch', path, `${what} is ${describe(actual)}, expected ${describe(expected)}`);
+            return;
         }
+        const e = members(expected);
+        const a = members(nonNull(actual));
+        if (e.length !== 1 || a.length !== 1 || isAny(e[0]) || isAny(a[0])) return;
+        if (e[0].type === 'object' && a[0].type === 'object') checkObject(e[0], a[0], path, what, value);
+        else if (e[0].type === 'array' && a[0].type === 'array') checkArray(e[0], a[0], path, what, value);
+    }
+
+    const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+
+    /** Compares the properties both types know; keys are compared only when the argument's type is exact. */
+    function checkObject(expected, actual, path, what, value) {
+        const expectedProps = expected.properties ?? {};
+        const actualProps = actual.properties ?? {};
+        const exact = actual.additionalProperties === false;
+        const literal = isPlainObject(value);
+        const at = k => literal && has(value, k) ? pointer(path, k) : path;
+        for (const k of expected.required ?? []) {
+            if (exact && !has(actualProps, k)) error('missing-property', path, `${what} has no '${k}', which is required`);
+        }
+        for (const [k, type] of Object.entries(actualProps)) {
+            // an optional property may be missing, which is not a mismatch
+            if (!(actual.required ?? []).includes(k)) continue;
+            const target = has(expectedProps, k) ? expectedProps[k] : expected.additionalProperties;
+            if (target === false) {
+                if (exact) error('unknown-property', at(k), `${what} has '${k}', which is not a property of the expected object (declared: ${Object.keys(expectedProps).join(', ') || 'none'})`);
+            } else if (target !== undefined) {
+                check(target, type, at(k), `${what}.${k}`, literal ? value[k] : undefined);
+            }
+        }
+    }
+
+    /** Compares the items of an array literal. */
+    function checkArray(expected, actual, path, what, value) {
+        if (!isArray(value) || actual.prefixItems === undefined) return;
+        actual.prefixItems.forEach((type, i) => {
+            const target = expected.prefixItems?.[i] ?? expected.items;
+            if (target && target !== false) check(target, type, pointer(path, i), `${what}[${i}]`, value[i]);
+        });
     }
 
     function checkTakes(expected, arg, value, path) {
@@ -181,7 +220,7 @@ function createEngine(prims, report) {
             if (disjoint(arg, ARRAY)) return;
             for (const operand of operands(value, arg, path)) check(expected.items, operand.type, operand.path, 'an item');
         } else {
-            check(expected, arg, path, 'the argument');
+            check(expected, arg, path, 'the argument', value);
         }
     }
 
@@ -200,7 +239,7 @@ function createEngine(prims, report) {
             }
             // an untyped argument may be a lambda of `as`: bind its names to any value
             types[k] = tree(takes[k] === undefined && value.as !== undefined ? bind(env, value.as) : env, v, argPath);
-            if (takes[k] !== undefined) check(toType(takes[k]), types[k], argPath, `'${k}'`);
+            if (takes[k] !== undefined) check(toType(takes[k]), types[k], argPath, `'${k}'`, v);
         }
         for (const spec of prim.params) {
             const name = spec.replace(/(=#|\?)$/, '');
