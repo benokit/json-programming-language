@@ -1,5 +1,5 @@
 import { printf } from 'fast-printf';
-import { concat, divide, every, filter, find, first, get, groupBy, gt, gte, includes, isArray, isEqual, isNil, join, keyBy, keys, lt, lte, map, mapValues, max, merge, min, multiply,
+import { concat, divide, every, filter, find, first, get, groupBy, gt, gte, includes, isArray, isEqual, isNil, isPlainObject, join, keyBy, keys, lt, lte, map, mapValues, max, merge, min, multiply,
     omit, orderBy, pick, reduce, round, some, split, subtract, sum, tail, take, takeWhile, uniqWith, values, zipObject, zipWith } from 'lodash-es'
 
 /**
@@ -80,6 +80,19 @@ const sort = direction => named(['by?', 'collection=#', 'as?'], ({ by, collectio
 const primitiveTable = {
     $let: true,
     $literal: special(value => () => value),
+    $template: special((argument, { compile, quote, fail, path }) => {
+        if (!isPlainObject(argument) || !('mapping' in argument) || Object.keys(argument).some(k => k !== 'mapping' && k !== 'with')) {
+            fail('takes { with?, mapping }');
+        }
+        if ('with' in argument && !isPlainObject(argument.with)) fail('with is an object of expressions', 'with');
+        const bound = mapValues(argument.with ?? {}, (expression, name) => compile(expression, 'with', name));
+        const invalidKey = value => {
+            const got = value === null ? 'null' : isArray(value) ? 'an array' : typeof value;
+            throw new LambdaJSONRuntimeError('invalid-template-key', path, `a name used as an object key must be a string, number or boolean, got ${got}`);
+        };
+        const filled = quote(argument.mapping, new Set(Object.keys(bound)), invalidKey, 'mapping');
+        return x => filled(mapValues(bound, f => f(x)));
+    }, { description: '$template: { with?, mapping }, the mapping as data with the names of `with` filled in' }),
     $: f => x => v => f({ ...x, input: v }),
     $in: f => x => f(x),
     $return: f => x => f(x),
@@ -203,7 +216,7 @@ const numbers = 'array<number>';
 const container = { anyOf: [{ type: 'object' }, { type: 'array' }] };
 
 const signatures = {
-    $literal: sig('any', 'any'), $: sig('any', 'function'), $in: sig('any', 'any'), $return: sig('any', 'any'),
+    $literal: sig('any', 'any'), $template: sig({ with: 'object', mapping: 'any' }, 'any'), $: sig('any', 'function'), $in: sig('any', 'any'), $return: sig('any', 'any'),
     $apply: sig({ fn: 'function', to: 'any', as: 'names' }, 'any'),
     $pipeline: sig('array<function>', 'any'),
     $if: sig('array', 'any'), $cond: sig('array', 'any'), $and: sig('array', 'any'), $or: sig('array', 'any'),

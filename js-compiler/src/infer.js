@@ -1,6 +1,7 @@
 import { isArray, isEqual, isPlainObject, isString, mapValues, toPath } from 'lodash-es';
 import { primitives as builtins } from './primitives.js';
 import { lint } from './js-compiler.js';
+import { isLiteralCall, occurrence, protectKey, protectString } from './template.js';
 import {
     ANY, ARRAY, BOOLEAN, FUNCTION, NULL, NUMBER, OBJECT, STRING,
     arrayOf, describe, disjoint, isAny, isNullable, itemOf, literalType, members, nonNull, normalize,
@@ -43,6 +44,7 @@ function createEngine(prims, report) {
     const warning = (code, path, message) => report('warning', code, path, message);
 
     function tree(env, node, path) {
+        if (env.quote && (isString(node) || isPlainObject(node))) return quoted(env, node, path);
         if (isString(node)) return string(env, node, path);
         if (isArray(node)) return tuple(node.map((n, i) => tree(env, n, pointer(path, i))));
         if (isPlainObject(node)) {
@@ -294,6 +296,7 @@ function createEngine(prims, report) {
 
     const FORMS = {
         $literal: (env, value) => literalType(value),
+        $template: (env, value, path) => template(env, value, path),
         $: (env, value, path) => {
             tree({ ...env, input: ANY }, value, path);
             return FUNCTION;
@@ -316,6 +319,59 @@ function createEngine(prims, report) {
     }
     for (const key of ['$lt', '$lte', '$gt', '$gte']) {
         FORMS[key] = (env, value, path) => { ordering(env, value, path); return BOOLEAN; };
+    }
+
+    /**
+     * `$template`: `with` is inferred as usual; the mapping is then walked in quote mode (see `tree`),
+     * so its type is the filled mapping as a literal, each hole typed by its bound expression.
+     * The mapping runs later against another input, so it is not checked here.
+     */
+    function template(env, { with: bindings = {}, mapping }, path) {
+        const types = {};
+        for (const [name, expression] of Object.entries(bindings)) types[name] = tree(env, expression, pointer(path, 'with', name));
+        const quote = { types, used: new Set(), literal: false };
+        const result = tree({ ...env, quote }, mapping, pointer(path, 'mapping'));
+        for (const name of Object.keys(types)) {
+            if (!quote.used.has(name)) warning('unused-template-name', pointer(path, 'with', name), `'${name}' is bound but the mapping never uses '@${name}'`);
+        }
+        return result;
+    }
+
+    const protectType = t => {
+        if (typeof t.const === 'string') return { ...t, const: protectString(t.const) };
+        if (t.prefixItems) return { ...t, prefixItems: t.prefixItems.map(protectType) };
+        if (t.properties) return { ...t, properties: mapValues(t.properties, protectType) };
+        return t;
+    };
+
+    /** Quote mode: a string or an object is data, except the holes. */
+    function quoted(env, node, path) {
+        const { quote } = env;
+        const hole = text => {
+            const found = isString(text) ? occurrence(text) : undefined;
+            if (found && has(quote.types, found.name)) quote.used.add(found.name);
+            return found && has(quote.types, found.name) ? found : undefined;
+        };
+        if (isString(node)) {
+            const found = hole(node);
+            if (!found) return literalType(node);
+            const t = walkPath(quote.types[found.name], found.path === undefined ? [] : toPath(found.path), message => error('unknown-path', path, message));
+            return quote.literal ? t : protectType(t);
+        }
+        const inner = quote.literal || isLiteralCall(node) ? { ...env, quote: { ...quote, literal: true } } : env;
+        const properties = {};
+        let exact = true;
+        for (const [key, item] of Object.entries(node)) {
+            const found = hole(key);
+            let name = key;
+            if (found) {
+                const { const: value } = quote.types[found.name];
+                if (['string', 'number', 'boolean'].includes(typeof value)) name = inner.quote.literal ? String(value) : protectKey(String(value));
+                else exact = false;
+            }
+            properties[name] = tree(inner, item, pointer(path, key));
+        }
+        return exact ? { type: 'object', properties, required: Object.keys(properties), additionalProperties: false } : OBJECT;
     }
 
     function logic(env, value, path, empty) {

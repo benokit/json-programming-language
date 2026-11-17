@@ -76,6 +76,20 @@ The rule is one character: **an object with a key starting with `$` is a call; e
 
 * `{ "$literal": <value> }` evaluates to `<value>` as-is, without interpreting it.
 
+* `{ "$template": { "with": { name: expression, … }, "mapping": <value> } }` evaluates to `<value>` as data, a mapping
+  to run later, with the names of `with` filled in. The mapping is never evaluated, so only what you bind changes:
+
+  ```json
+  { "$template": { "with": { "t": "#.transition" }, "mapping": { "$eq": ["#.command", "@t"] } } }
+  ```
+
+  With `transition = "issue"` this gives `{ "$eq": ["#.command", "issue"] }`. A string equal to `"@name"` is replaced by
+  the value, `"@name.path"` by a path of it, and an object key `"@name"` by the value as a string. Whole strings only:
+  `"hello @name"` stays. A name `with` doesn't bind (a lambda parameter, a `$let` variable) stays as written. A
+  substituted value is escaped (`"#x"` becomes `"\\#x"`), so computed data is never read as an expression by the later run;
+  inside a `$literal` nothing is escaped. Names are substituted textually, also in nested templates and where the mapping
+  declares the same name itself, so choose distinct names.
+
 ### Calling conventions
 
 Each primitive takes one argument. A primitive either takes it **as an expression** (`$sum`, `$head`, `$str`, …)
@@ -234,6 +248,7 @@ Without `as`, `$fold` and `$zip` pass the pair as `#`, read as `#0` and `#1`.
 | `$lower`, `$upper`, `$trim` | string |
 | `$isNil` | expression |
 | `$literal` | any value, not evaluated |
+| `$template` | `{ with?, mapping }` |
 
 ---
 
