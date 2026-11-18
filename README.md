@@ -85,7 +85,7 @@ The rule is one character: **an object with a key starting with `$` is a call; e
 
   With `transition = "issue"` this gives `{ "$let": { "t": "issue" }, "$in": { "$eq": ["#.command", "@t"] } }`,
   which, run on `{ command: "issue" }`, gives `true`. The values are bound as data (a string starting with `#`, `@`
-  or `\\` is escaped), so a computed value is never read as an expression. The names are `$let` variables, so a
+  or `\` is escaped), so a computed value is never read as an expression. The names are `$let` variables, so a
   lambda parameter of the same name in `in` shadows them. A name bound by an outer `$quote` is not visible to the
   program an inner `$quote` returns, unless the inner `let` passes it on (`"let": { "b": "@a" }`).
 
