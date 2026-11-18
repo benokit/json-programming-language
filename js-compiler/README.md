@@ -32,6 +32,13 @@ and the errors and warnings (impossible paths, possibly missing operands, mismat
 comparisons, unbound variables) found from the type of the input, without running the program.
 See the language documentation.
 
+## Changes in 3.3.0
+
+* New primitive `$quote`: `{ "$quote": { "let": { name: expression }, "in": program } }` evaluates `let` now and returns `{ "$let": <the values>, "$in": program }`, a program to run later (on another input) with those names bound. `in` is never evaluated by `$quote`. It is the closure of `in` over the values of `let`.
+* The values are bound as data: a string that starts with `#`, `@` or `\\` is escaped, so it is never read as an expression by the later run.
+* `let` is optional; its names can't start with `$` (functions can't be bound). Because the names are ordinary `$let` variables, a lambda parameter of the same name in `in` shadows them, and `@name.path` works.
+* `infer`: `let` is inferred as usual (a wrong path is reported at its place) and the result is typed as the object `{ $let, $in }`.
+
 ## Changes in 3.2.0
 
 * `infer`: the argument of a typed function is checked property by property, recursively. A property whose type is definitely disjoint from the declared one (wrong kind, literal outside `enum`/`const`) is a `type-mismatch` naming its path (`the argument.entityType is 5, expected string`). `any`, unknown and overlapping properties are not reported; optional properties of the argument type are skipped.

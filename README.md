@@ -76,6 +76,19 @@ The rule is one character: **an object with a key starting with `$` is a call; e
 
 * `{ "$literal": <value> }` evaluates to `<value>` as-is, without interpreting it.
 
+* `{ "$quote": { "let": { name: expression, … }, "in": <program> } }` builds a program to run later. `let` is
+  evaluated now and `in` is not evaluated at all; the result is `{ "$let": <the values>, "$in": <program> }`:
+
+  ```json
+  { "$quote": { "let": { "t": "#.transition" }, "in": { "$eq": ["#.command", "@t"] } } }
+  ```
+
+  With `transition = "issue"` this gives `{ "$let": { "t": "issue" }, "$in": { "$eq": ["#.command", "@t"] } }`,
+  which, run on `{ command: "issue" }`, gives `true`. The values are bound as data (a string starting with `#`, `@`
+  or `\\` is escaped), so a computed value is never read as an expression. The names are `$let` variables, so a
+  lambda parameter of the same name in `in` shadows them. A name bound by an outer `$quote` is not visible to the
+  program an inner `$quote` returns, unless the inner `let` passes it on (`"let": { "b": "@a" }`).
+
 ### Calling conventions
 
 Each primitive takes one argument. A primitive either takes it **as an expression** (`$sum`, `$head`, `$str`, …)
@@ -234,6 +247,7 @@ Without `as`, `$fold` and `$zip` pass the pair as `#`, read as `#0` and `#1`.
 | `$lower`, `$upper`, `$trim` | string |
 | `$isNil` | expression |
 | `$literal` | any value, not evaluated |
+| `$quote` | `{ let?, in }` |
 
 ---
 

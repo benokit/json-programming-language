@@ -1,5 +1,5 @@
 import { printf } from 'fast-printf';
-import { concat, divide, every, filter, find, first, get, groupBy, gt, gte, includes, isArray, isEqual, isNil, join, keyBy, keys, lt, lte, map, mapValues, max, merge, min, multiply,
+import { concat, divide, every, filter, find, first, get, groupBy, gt, gte, includes, isArray, isEqual, isNil, isPlainObject, join, keyBy, keys, lt, lte, map, mapValues, max, merge, min, multiply,
     omit, orderBy, pick, reduce, round, some, split, subtract, sum, tail, take, takeWhile, uniqWith, values, zipObject, zipWith } from 'lodash-es'
 
 /**
@@ -74,12 +74,31 @@ const strict = (name, impl) => special((args, { compile, path }) => {
     };
 });
 
+/** A computed value is data, not an expression: a string that would be read as one gets a backslash. */
+const protect = value => typeof value === 'string'
+    ? /^[#@\\]/.test(value) ? `\\${value}` : value
+    : isArray(value)
+        ? value.map(protect)
+        : isPlainObject(value)
+            ? Object.fromEntries(Object.entries(value).map(([key, item]) => [/^[$\\]/.test(key) ? `\\${key}` : key, protect(item)]))
+            : value;
+
 const sort = direction => named(['by?', 'collection=#', 'as?'], ({ by, collection, as }) => x =>
     orderBy(collection(x), by ? [v => call(by, as, x, [v])] : undefined, [direction]));
 
 const primitiveTable = {
     $let: true,
     $literal: special(value => () => value),
+    $quote: special((argument, { compile, fail }) => {
+        if (!isPlainObject(argument) || !('in' in argument) || Object.keys(argument).some(k => k !== 'let' && k !== 'in')) {
+            fail('takes { let?, in }');
+        }
+        if ('let' in argument && !isPlainObject(argument.let)) fail('let is an object of expressions', 'let');
+        const names = Object.keys(argument.let ?? {});
+        if (names.some(name => name.startsWith('$'))) fail('can only bind values, not functions', 'let');
+        const bound = mapValues(argument.let ?? {}, (expression, name) => compile(expression, 'let', name));
+        return x => ({ $let: protect(mapValues(bound, f => f(x))), $in: argument.in });
+    }, { description: '$quote: { let?, in }, the program `in` with the values of `let` bound, to run later' }),
     $: f => x => v => f({ ...x, input: v }),
     $in: f => x => f(x),
     $return: f => x => f(x),
@@ -203,7 +222,7 @@ const numbers = 'array<number>';
 const container = { anyOf: [{ type: 'object' }, { type: 'array' }] };
 
 const signatures = {
-    $literal: sig('any', 'any'), $: sig('any', 'function'), $in: sig('any', 'any'), $return: sig('any', 'any'),
+    $literal: sig('any', 'any'), $quote: sig({ let: 'object', in: 'any' }, 'object'), $: sig('any', 'function'), $in: sig('any', 'any'), $return: sig('any', 'any'),
     $apply: sig({ fn: 'function', to: 'any', as: 'names' }, 'any'),
     $pipeline: sig('array<function>', 'any'),
     $if: sig('array', 'any'), $cond: sig('array', 'any'), $and: sig('array', 'any'), $or: sig('array', 'any'),

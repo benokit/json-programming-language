@@ -1199,4 +1199,61 @@ describe('pure json programming language', () => {
             expect(infer('@limit', { vars: { limit: { type: 'number' } } }).type).to.deep.equal({ type: 'number' });
         });
     });
+
+    describe('$quote', () => {
+        const run = (program, input) => compile(program)(input);
+        const quote = (bindings, body) => ({ $quote: { let: bindings, in: body } });
+
+        it('returns the program with the values bound by let', () => {
+            expect(run(quote({ t: '#.name' }, { $eq: ['#.command', '@t'] }), { name: 'issue' }))
+                .to.deep.equal({ $let: { t: 'issue' }, $in: { $eq: ['#.command', '@t'] } });
+        });
+        it('without let binds nothing', () => {
+            expect(run({ $quote: { in: '#.a' } }, {})).to.deep.equal({ $let: {}, $in: '#.a' });
+        });
+        it('gives a program that runs later on another input', () => {
+            const built = run(quote({ field: '#.field' }, { $str: ['#.value', '-', '@field'] }), { field: 'x' });
+            expect(compile(built)({ value: 'v' })).to.equal('v-x');
+        });
+        it('reads a path of a bound name when it runs', () => {
+            const built = run(quote({ target: { id: '#.id' } }, '@target.id'), { id: 7 });
+            expect(compile(built)({})).to.equal(7);
+        });
+        it('keeps the parameters of a lambda in the program, and lets them shadow a bound name', () => {
+            const built = run(quote({ t: '#.t' }, { $any: { collection: '#.commands', as: 'command', predicate: { $eq: ['@command', '@t'] } } }), { t: 'issue' });
+            expect(compile(built)({ commands: ['a', 'issue'] })).to.equal(true);
+            const shadowed = run(quote({ t: 1 }, { $map: { over: '#', as: 't', fn: '@t' } }), {});
+            expect(compile(shadowed)([5, 6])).to.deep.equal([5, 6]);
+        });
+        it('nests: a name of the outer quote reaches the inner one only through its let', () => {
+            const built = run(quote({ a: '#.a' }, quote({ b: '@a' }, '@b')), { a: 1 });
+            const inner = compile(built)({});
+            expect(inner).to.deep.equal({ $let: { b: 1 }, $in: '@b' });
+            expect(compile(inner)({})).to.equal(1);
+        });
+        it('binds a computed value as data, never as an expression', () => {
+            const built = run(quote({ a: '#.text' }, '@a'), { text: '#.secret' });
+            expect(built.$let).to.deep.equal({ a: '\\#.secret' });
+            expect(compile(built)({ secret: 'no' })).to.equal('#.secret');
+            const keyed = run(quote({ a: '#.value' }, '@a'), { value: { $sum: [1, 2], '@k': '@x' } });
+            expect(compile(keyed)({})).to.deep.equal({ '$sum': [1, 2], '@k': '@x' });
+        });
+        it('rejects a wrong argument', () => {
+            for (const argument of [[], { let: {} }, { in: 1, other: 2 }, { let: 3, in: 1 }, { let: { $f: 1 }, in: 1 }]) {
+                expect(() => compile({ $quote: argument })).to.throw(LambdaJSONError, /\$quote/);
+            }
+            expect(lint({ $quote: { let: {} } })[0]).to.include({ code: 'invalid-arguments', path: '/$quote' });
+        });
+        it('has a signature', () => {
+            expect(signatureOf('$quote')).to.deep.equal({ takes: { let: 'object', in: 'any' }, returns: 'object' });
+        });
+        it('infers let as usual and types the result as the program', () => {
+            const input = { type: 'object', properties: { name: { type: 'string' } }, required: ['name'], additionalProperties: false };
+            const { type, problems } = infer(quote({ t: '#.name' }, '@t'), { input });
+            expect(problems).to.deep.equal([]);
+            expect(type.properties.$in).to.deep.equal({ type: 'string', const: '@t' });
+            expect(type.properties.$let.properties.t).to.deep.equal({ type: 'string' });
+            expect(infer(quote({ t: '#.nope' }, '@t'), { input }).problems[0]).to.include({ code: 'unknown-path', path: '/$quote/let/t' });
+        });
+    });
 });
