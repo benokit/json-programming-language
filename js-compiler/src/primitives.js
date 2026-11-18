@@ -89,16 +89,16 @@ const sort = direction => named(['by?', 'collection=#', 'as?'], ({ by, collectio
 const primitiveTable = {
     $let: true,
     $literal: special(value => () => value),
-    $quote: special((argument, { compile, fail }) => {
-        if (!isPlainObject(argument) || !('in' in argument) || Object.keys(argument).some(k => k !== 'let' && k !== 'in')) {
-            fail('takes { let?, in }');
+    $capture: special((argument, { compile, fail }) => {
+        if (!isPlainObject(argument) || !('in' in argument) || Object.keys(argument).some(k => k !== 'values' && k !== 'in')) {
+            fail('takes { values?, in }');
         }
-        if ('let' in argument && !isPlainObject(argument.let)) fail('let is an object of expressions', 'let');
-        const names = Object.keys(argument.let ?? {});
-        if (names.some(name => name.startsWith('$'))) fail('can only bind values, not functions', 'let');
-        const bound = mapValues(argument.let ?? {}, (expression, name) => compile(expression, 'let', name));
+        if ('values' in argument && !isPlainObject(argument.values)) fail('values is an object of expressions', 'values');
+        const names = Object.keys(argument.values ?? {});
+        if (names.some(name => name.startsWith('$'))) fail('can only bind values, not functions', 'values');
+        const bound = mapValues(argument.values ?? {}, (expression, name) => compile(expression, 'values', name));
         return x => ({ $let: protect(mapValues(bound, f => f(x))), $in: argument.in });
-    }, { description: '$quote: { let?, in }, the program `in` with the values of `let` bound, to run later' }),
+    }, { description: '$capture: { values?, in }, the program `in` with the names of `values` bound to values computed now, to run later' }),
     $: f => x => v => f({ ...x, input: v }),
     $in: f => x => f(x),
     $return: f => x => f(x),
@@ -222,7 +222,7 @@ const numbers = 'array<number>';
 const container = { anyOf: [{ type: 'object' }, { type: 'array' }] };
 
 const signatures = {
-    $literal: sig('any', 'any'), $quote: sig({ let: 'object', in: 'any' }, 'object'), $: sig('any', 'function'), $in: sig('any', 'any'), $return: sig('any', 'any'),
+    $literal: sig('any', 'any'), $capture: sig({ values: 'object', in: 'any' }, 'object'), $: sig('any', 'function'), $in: sig('any', 'any'), $return: sig('any', 'any'),
     $apply: sig({ fn: 'function', to: 'any', as: 'names' }, 'any'),
     $pipeline: sig('array<function>', 'any'),
     $if: sig('array', 'any'), $cond: sig('array', 'any'), $and: sig('array', 'any'), $or: sig('array', 'any'),

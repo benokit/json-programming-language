@@ -294,8 +294,8 @@ function createEngine(prims, report) {
 
     const FORMS = {
         $literal: (env, value) => literalType(value),
-        $quote: (env, { let: bindings = {}, in: body }, path) => {
-            const properties = mapValues(bindings, (expression, name) => tree(env, expression, pointer(path, 'let', name)));
+        $capture: (env, { values: bindings = {}, in: body }, path) => {
+            const properties = mapValues(bindings, (expression, name) => tree(env, expression, pointer(path, 'values', name)));
             const bound = { type: 'object', properties, required: Object.keys(properties), additionalProperties: false };
             return { type: 'object', properties: { $let: bound, $in: literalType(body) }, required: ['$let', '$in'], additionalProperties: false };
         },

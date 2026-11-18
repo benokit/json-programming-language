@@ -1200,60 +1200,60 @@ describe('pure json programming language', () => {
         });
     });
 
-    describe('$quote', () => {
+    describe('$capture', () => {
         const run = (program, input) => compile(program)(input);
-        const quote = (bindings, body) => ({ $quote: { let: bindings, in: body } });
+        const capture = (bindings, body) => ({ $capture: { values: bindings, in: body } });
 
-        it('returns the program with the values bound by let', () => {
-            expect(run(quote({ t: '#.name' }, { $eq: ['#.command', '@t'] }), { name: 'issue' }))
+        it('returns the program with the names of values bound', () => {
+            expect(run(capture({ t: '#.name' }, { $eq: ['#.command', '@t'] }), { name: 'issue' }))
                 .to.deep.equal({ $let: { t: 'issue' }, $in: { $eq: ['#.command', '@t'] } });
         });
-        it('without let binds nothing', () => {
-            expect(run({ $quote: { in: '#.a' } }, {})).to.deep.equal({ $let: {}, $in: '#.a' });
+        it('without values binds nothing', () => {
+            expect(run({ $capture: { in: '#.a' } }, {})).to.deep.equal({ $let: {}, $in: '#.a' });
         });
         it('gives a program that runs later on another input', () => {
-            const built = run(quote({ field: '#.field' }, { $str: ['#.value', '-', '@field'] }), { field: 'x' });
+            const built = run(capture({ field: '#.field' }, { $str: ['#.value', '-', '@field'] }), { field: 'x' });
             expect(compile(built)({ value: 'v' })).to.equal('v-x');
         });
         it('reads a path of a bound name when it runs', () => {
-            const built = run(quote({ target: { id: '#.id' } }, '@target.id'), { id: 7 });
+            const built = run(capture({ target: { id: '#.id' } }, '@target.id'), { id: 7 });
             expect(compile(built)({})).to.equal(7);
         });
         it('keeps the parameters of a lambda in the program, and lets them shadow a bound name', () => {
-            const built = run(quote({ t: '#.t' }, { $any: { collection: '#.commands', as: 'command', predicate: { $eq: ['@command', '@t'] } } }), { t: 'issue' });
+            const built = run(capture({ t: '#.t' }, { $any: { collection: '#.commands', as: 'command', predicate: { $eq: ['@command', '@t'] } } }), { t: 'issue' });
             expect(compile(built)({ commands: ['a', 'issue'] })).to.equal(true);
-            const shadowed = run(quote({ t: 1 }, { $map: { over: '#', as: 't', fn: '@t' } }), {});
+            const shadowed = run(capture({ t: 1 }, { $map: { over: '#', as: 't', fn: '@t' } }), {});
             expect(compile(shadowed)([5, 6])).to.deep.equal([5, 6]);
         });
-        it('nests: a name of the outer quote reaches the inner one only through its let', () => {
-            const built = run(quote({ a: '#.a' }, quote({ b: '@a' }, '@b')), { a: 1 });
+        it('nests: a name of the outer quote reaches the inner one only through its values', () => {
+            const built = run(capture({ a: '#.a' }, capture({ b: '@a' }, '@b')), { a: 1 });
             const inner = compile(built)({});
             expect(inner).to.deep.equal({ $let: { b: 1 }, $in: '@b' });
             expect(compile(inner)({})).to.equal(1);
         });
         it('binds a computed value as data, never as an expression', () => {
-            const built = run(quote({ a: '#.text' }, '@a'), { text: '#.secret' });
+            const built = run(capture({ a: '#.text' }, '@a'), { text: '#.secret' });
             expect(built.$let).to.deep.equal({ a: '\\#.secret' });
             expect(compile(built)({ secret: 'no' })).to.equal('#.secret');
-            const keyed = run(quote({ a: '#.value' }, '@a'), { value: { $sum: [1, 2], '@k': '@x' } });
+            const keyed = run(capture({ a: '#.value' }, '@a'), { value: { $sum: [1, 2], '@k': '@x' } });
             expect(compile(keyed)({})).to.deep.equal({ '$sum': [1, 2], '@k': '@x' });
         });
         it('rejects a wrong argument', () => {
-            for (const argument of [[], { let: {} }, { in: 1, other: 2 }, { let: 3, in: 1 }, { let: { $f: 1 }, in: 1 }]) {
-                expect(() => compile({ $quote: argument })).to.throw(LambdaJSONError, /\$quote/);
+            for (const argument of [[], { values: {} }, { in: 1, other: 2 }, { values: 3, in: 1 }, { values: { $f: 1 }, in: 1 }]) {
+                expect(() => compile({ $capture: argument })).to.throw(LambdaJSONError, /\$capture/);
             }
-            expect(lint({ $quote: { let: {} } })[0]).to.include({ code: 'invalid-arguments', path: '/$quote' });
+            expect(lint({ $capture: { values: {} } })[0]).to.include({ code: 'invalid-arguments', path: '/$capture' });
         });
         it('has a signature', () => {
-            expect(signatureOf('$quote')).to.deep.equal({ takes: { let: 'object', in: 'any' }, returns: 'object' });
+            expect(signatureOf('$capture')).to.deep.equal({ takes: { values: 'object', in: 'any' }, returns: 'object' });
         });
-        it('infers let as usual and types the result as the program', () => {
+        it('infers values as usual and types the result as the program', () => {
             const input = { type: 'object', properties: { name: { type: 'string' } }, required: ['name'], additionalProperties: false };
-            const { type, problems } = infer(quote({ t: '#.name' }, '@t'), { input });
+            const { type, problems } = infer(capture({ t: '#.name' }, '@t'), { input });
             expect(problems).to.deep.equal([]);
             expect(type.properties.$in).to.deep.equal({ type: 'string', const: '@t' });
             expect(type.properties.$let.properties.t).to.deep.equal({ type: 'string' });
-            expect(infer(quote({ t: '#.nope' }, '@t'), { input }).problems[0]).to.include({ code: 'unknown-path', path: '/$quote/let/t' });
+            expect(infer(capture({ t: '#.nope' }, '@t'), { input }).problems[0]).to.include({ code: 'unknown-path', path: '/$capture/values/t' });
         });
     });
 });
