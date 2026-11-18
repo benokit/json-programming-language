@@ -1,6 +1,5 @@
 import { get, isArray, isPlainObject, isString, map, mapValues, zipObject } from 'lodash-es'
 import { primitives, LambdaJSONRuntimeError } from './primitives.js';
-import { isLiteralCall, occurrence, protect, protectKey } from './template.js';
 
 export {
     compile,
@@ -82,8 +81,6 @@ const pointer = (path, key) => `${path}/${String(key).replace(/~/g, '~0').replac
 const fail = (code, path, message) => { throw new LambdaJSONError(code, path, message); };
 
 function compileTree(scope, tree, path) {
-    if (scope.quote) return compileQuoted(scope, tree, path);
-
     if (isString(tree)) { return compileString(scope, tree, path); }
 
     if (isArray(tree)) { return compileArray(scope, tree, path); }
@@ -167,10 +164,6 @@ function specialContext(scope, key, path) {
         compile: (tree, ...steps) => compileTree(scope, tree, steps.reduce(pointer, path)),
         fail: (message, ...steps) => fail('invalid-arguments', steps.reduce(pointer, path), `${key}: ${message}`),
         warn: (code, message, ...steps) => scope.warn(code, steps.reduce(pointer, path), message),
-        quote: (tree, names, invalidKey, ...steps) => {
-            const f = compileTree({ ...scope, quote: { names, literal: false, invalidKey } }, tree, steps.reduce(pointer, path));
-            return bound => f({ bound });
-        },
         path
     };
 }
@@ -285,42 +278,6 @@ function compileObject(scope, obj, path) {
         funks[outKey] = compileTree(scope, obj[key], pointer(path, key));
     }
     return x => mapValues(funks, f => f(x));
-}
-
-/**
- * Quote mode (`$template`): the tree is data, so nothing is evaluated, except the holes, the names
- * bound by `with`. The functions take `{ bound }`, the values of those names. Arrays recurse as usual.
- */
-function compileQuoted(scope, tree, path) {
-    const { names, literal } = scope.quote;
-    const hole = text => {
-        const found = isString(text) ? occurrence(text) : undefined;
-        return found && names.has(found.name) ? found : undefined;
-    };
-    if (isArray(tree)) return compileArray(scope, tree, path);
-    if (isPlainObject(tree)) {
-        const inner = literal || isLiteralCall(tree) ? { ...scope, quote: { ...scope.quote, literal: true } } : scope;
-        const entries = Object.entries(tree).map(([key, item]) => {
-            const found = hole(key);
-            const value = compileTree(inner, item, pointer(path, key));
-            if (!found) return [() => key, value];
-            const { invalidKey } = scope.quote;
-            return [({ bound }) => {
-                const name = bound[found.name];
-                if (!['string', 'number', 'boolean'].includes(typeof name)) invalidKey(name);
-                return inner.quote.literal ? String(name) : protectKey(String(name));
-            }, value];
-        });
-        return x => {
-            const object = {};
-            for (const [key, value] of entries) object[key(x)] = value(x);
-            return object;
-        };
-    }
-    const found = hole(tree);
-    if (!found) return () => tree;
-    const read = found.path === undefined ? ({ bound }) => bound[found.name] : ({ bound }) => get(bound[found.name], found.path);
-    return literal ? read : x => protect(read(x));
 }
 
 function compileString(scope, str, path) {

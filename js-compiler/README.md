@@ -32,13 +32,6 @@ and the errors and warnings (impossible paths, possibly missing operands, mismat
 comparisons, unbound variables) found from the type of the input, without running the program.
 See the language documentation.
 
-## Changes in 3.3.0
-
-* New primitive `$template`: `{ "$template": { "with": { name: expression }, "mapping": … } }` returns `mapping` as data, a mapping to run later, with the names bound by `with` filled in. A string equal to `"@name"` (or `"@name.path"`) is replaced by the value, an object key equal to `"@name"` by the value as a string; `#` paths, `$` keys and names `with` doesn't bind (lambda parameters, `$let` variables) stay as written. The mapping is never evaluated.
-* A substituted value is escaped (a string starting with `#`, `@` or `\` gets a backslash, recursively), so a computed value is never read as an expression by the later run. Keys that would be read as a call or an escape (a substituted key, or a key of a substituted object, starting with `$` or `\`) are escaped too. Nothing is escaped inside the argument of `$literal`, where values are taken as they are.
-* A substituted key must be a string, number or boolean (`invalid-template-key` at run time otherwise).
-* `infer`: the result type is the filled mapping as a literal, each hole typed by its bound expression; `with` is inferred as usual (a wrong path is reported at its place); a bound name the mapping never uses is the warning `unused-template-name`.
-
 ## Changes in 3.2.0
 
 * `infer`: the argument of a typed function is checked property by property, recursively. A property whose type is definitely disjoint from the declared one (wrong kind, literal outside `enum`/`const`) is a `type-mismatch` naming its path (`the argument.entityType is 5, expected string`). `any`, unknown and overlapping properties are not reported; optional properties of the argument type are skipped.
