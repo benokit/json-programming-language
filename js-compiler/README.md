@@ -32,17 +32,24 @@ and the errors and warnings (impossible paths, possibly missing operands, mismat
 comparisons, unbound variables) found from the type of the input, without running the program.
 See the language documentation.
 
+## Changes in 3.5.0
+
+* `$template` is back, as in 3.3.0 (see below), next to `$capture`, which stays. Use `$template` to return a mapping as data with the names filled in (also as object keys); use `$capture` to bind names for a program to run later.
+
 ## Changes in 3.4.0
 
 * New primitive `$capture`: `{ "$capture": { "values": { name: expression }, "in": program } }` evaluates `values` now and returns `{ "$let": <the values>, "$in": program }`, a program to run later (on another input) with those names bound. `in` is never evaluated by `$capture`.
-* **Breaking:** `$template`, published in 3.3.0, is removed. `$capture` replaces it where the mapping is meant to run later; it can't fill object keys (`{ "@role": … }`) or return the mapping with the values substituted into it.
+* `$template` was removed in this version and restored in 3.5.0. `$capture` replaces it where the mapping is meant to run later; it can't fill object keys (`{ "@role": … }`) or return the mapping with the values substituted into it.
 * The values are bound as data: a string that starts with `#`, `@` or `\` is escaped, so it is never read as an expression by the later run.
 * `values` is optional; its names can't start with `$` (functions can't be bound). Because the names are ordinary `$let` variables, a lambda parameter of the same name in `in` shadows them, and `@name.path` works.
 * `infer`: `values` is inferred as usual (a wrong path is reported at its place) and the result is typed as the object `{ $let, $in }`.
 
 ## Changes in 3.3.0
 
-* New primitive `$template`: `{ "$template": { "with": { name: expression }, "mapping": … } }` returned the mapping as data with the names bound by `with` filled in (also as object keys). Removed in 3.4.0; see `$capture`.
+* New primitive `$template`: `{ "$template": { "with": { name: expression }, "mapping": … } }` returns `mapping` as data, a mapping to run later, with the names bound by `with` filled in. A string equal to `"@name"` (or `"@name.path"`) is replaced by the value, an object key equal to `"@name"` by the value as a string; `#` paths, `$` keys and names `with` doesn't bind (lambda parameters, `$let` variables) stay as written. The mapping is never evaluated.
+* A substituted value is escaped (a string starting with `#`, `@` or `\` gets a backslash, recursively), so a computed value is never read as an expression by the later run. Keys that would be read as a call or an escape (a substituted key, or a key of a substituted object, starting with `$` or `\`) are escaped too. Nothing is escaped inside the argument of `$literal`, where values are taken as they are.
+* A substituted key must be a string, number or boolean (`invalid-template-key` at run time otherwise).
+* `infer`: the result type is the filled mapping as a literal, each hole typed by its bound expression; `with` is inferred as usual (a wrong path is reported at its place); a bound name the mapping never uses is the warning `unused-template-name`.
 
 ## Changes in 3.2.0
 
