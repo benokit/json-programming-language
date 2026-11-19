@@ -1390,8 +1390,8 @@ describe('pure json programming language', () => {
             const program = { $map: { fn: { $if: [{ $lt: ['#', 3] }, '#', { $throw: { code: 'big', message: { $str: ['too big: ', '#'] } } }] } } };
             expect(thrown(program, [1, 2, 3, 4]).message).to.equal('too big: 3');
         });
-        it('works in a $let binding', () => {
-            expect(thrown({ $let: { a: { $throw: { code: 'c', message: 'm' } } }, $return: 1 })).to.have.property('code', 'c');
+        it('works in a $let binding, when it is read', () => {
+            expect(thrown({ $let: { a: { $throw: { code: 'c', message: 'm' } } }, $sum: ['@a', 1] })).to.have.property('code', 'c');
         });
         it('infers never, which does not widen siblings', () => {
             const input = { type: 'object', properties: { value: { type: 'number' }, t: { type: 'boolean' } }, required: ['value', 't'] };
@@ -1410,6 +1410,55 @@ describe('pure json programming language', () => {
             expect(lint({ $if: [true, { $throw: { code: 'c', message: 'm' } }, 1] })).to.deep.equal([]);
             expect(lint({ $throw: { code: 'c', message: 'm', extra: 1 } })[0]).to.include({ severity: 'error', path: '/$throw/extra' });
             expect(lint({ $throw: { code: 'c' } })[0]).to.include({ severity: 'error' });
+        });
+    });
+
+    describe('lazy $let bindings', () => {
+        const boom = { $throw: { code: 'c', message: 'm' } };
+        const spy = counter => ({ $count: f => x => { counter.calls += 1; return f(x); } });
+        const thrown = (program, input, prims) => { try { compile(program, prims)(input); } catch (e) { return e; } return undefined; };
+        it('does not evaluate a binding that is never read', () => {
+            expect(compile({ $let: { a: boom, b: 1 }, $sum: ['@b', 1] })(null)).to.equal(2);
+        });
+        it('raises when a taken branch reads it, not an untaken one', () => {
+            const program = ok => ({ $let: { a: boom }, $if: [ok, '@a', 1] });
+            expect(thrown(program(true))).to.have.property('code', 'c');
+            expect(compile(program(false))(null)).to.equal(1);
+        });
+        it('evaluates once, however often and wherever it is read', () => {
+            const counter = { calls: 0 };
+            const program = { $let: { a: { $count: 5 } }, $sum: ['@a', { $sum: { $map: { fn: '@a' } } }] };
+            expect(compile(program, spy(counter))([1, 2, 3])).to.equal(20);
+            expect(counter.calls).to.equal(1);
+        });
+        it('evaluates an earlier lazy binding once, when a later one is read', () => {
+            const counter = { calls: 0 };
+            const program = { $let: { a: { $count: 2 }, b: { $sum: ['@a', 1] } }, $sum: ['@b', '@b'] };
+            expect(compile(program, spy(counter))(null)).to.equal(6);
+            expect(counter.calls).to.equal(1);
+            counter.calls = 0;
+            compile({ $let: { a: { $count: 2 }, b: { $sum: ['@a', 1] } }, $sum: [1, 1] }, spy(counter))(null);
+            expect(counter.calls).to.equal(0);
+        });
+        it('raises the same error on every read, without evaluating again', () => {
+            const counter = { calls: 0 };
+            const twice = { $let: { a: { $count: boom } }, $if: [false, 0, ['@a', '@a']] }; // the first read raises, so the counter stays at one
+            const e = thrown(twice, null, spy(counter));
+            expect(e).to.have.property('code', 'c');
+            expect(counter.calls).to.equal(1);
+            expect(compile({ $let: { a: boom }, $map: { fn: { $if: ['#', '@a', 0] } } })([0, 0])).to.deep.equal([0, 0]);
+        });
+        it('keeps a binding that reads a later one an unknown-variable in infer', () => {
+            const { problems } = infer({ $let: { a: '@b', b: 1 }, $sum: [1, 1] });
+            expect(problems.map(p => p.code)).to.include('unknown-variable');
+        });
+        it('infer still types and checks a binding that is never read', () => {
+            const { problems } = infer({ $let: { a: { $sum: 'x' } }, $sum: [1, 1] });
+            expect(problems.length).to.be.greaterThan(0);
+        });
+        it('leaves functions and as parameters unchanged', () => {
+            expect(compile({ $let: { $double: { $multiply: ['#', 2] }, k: 3 }, $double: '@k' })(null)).to.equal(6);
+            expect(compile({ $map: { as: 'n', fn: { $sum: ['@n', 1] } } })([1, 2])).to.deep.equal([2, 3]);
         });
     });
 });

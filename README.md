@@ -125,8 +125,9 @@ reference below) may be left out. Before version 2 named parameters were written
 
 ### Local bindings: `$let`
 
-`$let` binds names for the call beside it and everything inside it. Bindings are evaluated in order, so a
-binding can use earlier ones. A key starting with `$` declares a function, whose input `#` is its argument:
+`$let` binds names for the call beside it and everything inside it. Bindings are evaluated lazily, at most once: a binding runs the
+first time it is read (a failure it raises surfaces there, and again on every later read), and one that is never read
+never runs. A binding can use earlier ones, in the order declared. A key starting with `$` declares a function, whose input `#` is its argument:
 
 ```json
 {

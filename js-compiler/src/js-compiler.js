@@ -263,13 +263,37 @@ function compileVars(scope, obj, path) {
         const localVars = {};
         const extendedVars = { ...vars };
         for (const key in funks) {
-            localVars[key] = key.startsWith('$')
-                ? funks[key]
-                : funks[key]({ vars: extendedVars, input });
+            const f = funks[key];
+            // The scope of a binding is the names declared before it, fixed now; it is evaluated on first read.
+            localVars[key] = key.startsWith('$') ? f : new Lazy(f, { vars: { ...extendedVars }, input });
             extendedVars[key] = localVars[key];
         }
         return localVars;
     };
+}
+
+/** A `$let` binding: evaluated on the first read, at most once; a failure is kept and raised again on every read. */
+class Lazy {
+    constructor(f, x) {
+        this.f = f;
+        this.x = x;
+    }
+
+    force() {
+        if (this.f !== undefined) {
+            const { f, x } = this;
+            this.f = undefined;
+            this.x = undefined;
+            try {
+                this.value = f(x);
+            } catch (e) {
+                this.failed = true;
+                this.value = e;
+            }
+        }
+        if (this.failed) throw this.value;
+        return this.value;
+    }
 }
 
 function compileObject(scope, obj, path) {
@@ -342,7 +366,12 @@ function compileString(scope, str, path) {
     }
     if (str.startsWith('@')) {
         const p = str.slice(1);
-        return ({ vars }) => get(vars, p);
+        const name = /^[^.[]*/.exec(p)[0];
+        const rest = p.slice(name.length).replace(/^\./, '');
+        return ({ vars }) => {
+            const root = vars[name] instanceof Lazy ? vars[name].force() : vars[name];
+            return rest === '' && name === p ? root : get({ [name]: root }, p);
+        };
     }
     return () => str;
 }
