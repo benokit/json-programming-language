@@ -3,7 +3,7 @@ import { primitives as builtins } from './primitives.js';
 import { lint } from './js-compiler.js';
 import { isLiteralCall, occurrence, protectKey, protectString } from './template.js';
 import {
-    ANY, ARRAY, BOOLEAN, FUNCTION, NULL, NUMBER, OBJECT, STRING,
+    ANY, ARRAY, BOOLEAN, FUNCTION, NEVER, NULL, NUMBER, OBJECT, STRING,
     arrayOf, describe, disjoint, isAny, isNullable, itemOf, literalType, members, nonNull, normalize,
     nullable, objectOf, orAny, toType, tuple, union, valueOf, walkPath
 } from './types.js';
@@ -315,6 +315,14 @@ function createEngine(prims, report) {
             const last = results[results.length - 1];
             const total = last && !isAny(last[0]) && members(last[0]).every(truthyConst);
             return orAny(union(...results.map(r => r[1]), ...(total ? [] : [NULL])));
+        },
+        $throw: (env, value, path) => {
+            for (const key of ['code', 'message']) {
+                const type = tree(env, value[key], pointer(path, key));
+                check(STRING, type, pointer(path, key), `'${key}'`, value[key]);
+            }
+            if ('data' in value) tree(env, value.data, pointer(path, 'data'));
+            return NEVER;
         },
         $and: (env, value, path) => logic(env, value, path, true),
         $or: (env, value, path) => logic(env, value, path, false),

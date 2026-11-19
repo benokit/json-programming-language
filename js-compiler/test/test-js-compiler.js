@@ -1363,4 +1363,53 @@ describe('pure json programming language', () => {
             });
         });
     });
+
+    describe('$throw', () => {
+        const thrown = (program, input) => { try { compile(program)(input); } catch (e) { return e; } return undefined; };
+        const boom = { $throw: { code: 'invalid', message: { $str: ['no such role: ', '#.role'] }, data: { role: '#.role' } } };
+        it('raises with the given code, message and data, without a path suffix', () => {
+            const e = thrown(boom, { role: 'admin' });
+            expect(e).to.be.instanceOf(LambdaJSONRuntimeError);
+            expect(e).to.include({ code: 'invalid', message: 'no such role: admin', path: '/$throw' });
+            expect(e.data).to.deep.equal({ role: 'admin' });
+        });
+        it('leaves data undefined when absent', () => {
+            expect(thrown({ $throw: { code: 'c', message: 'm' } }).data).to.equal(undefined);
+        });
+        it('is lazy in $if', () => {
+            expect(compile({ $if: ['#.ok', 1, boom] })({ ok: true })).to.equal(1);
+            expect(compile({ $if: [false, boom, 1] })({})).to.equal(1);
+            expect(thrown({ $if: [true, boom, 1] }, { role: 'r' })).to.have.property('code', 'invalid');
+        });
+        it('is lazy in $cond', () => {
+            const program = { $cond: [['#.ok', 1], ['else', boom]] };
+            expect(compile(program)({ ok: true })).to.equal(1);
+            expect(thrown(program, { ok: false, role: 'r' })).to.have.property('code', 'invalid');
+        });
+        it('raises on the first item that reaches it inside $map', () => {
+            const program = { $map: { fn: { $if: [{ $lt: ['#', 3] }, '#', { $throw: { code: 'big', message: { $str: ['too big: ', '#'] } } }] } } };
+            expect(thrown(program, [1, 2, 3, 4]).message).to.equal('too big: 3');
+        });
+        it('works in a $let binding', () => {
+            expect(thrown({ $let: { a: { $throw: { code: 'c', message: 'm' } } }, $return: 1 })).to.have.property('code', 'c');
+        });
+        it('infers never, which does not widen siblings', () => {
+            const input = { type: 'object', properties: { value: { type: 'number' }, t: { type: 'boolean' } }, required: ['value', 't'] };
+            expect(infer(boom, { input: { type: 'object', properties: { role: { type: 'string' } } } }).type).to.deep.equal({ enum: [] });
+            expect(infer({ $if: ['#.t', { $throw: { code: 'c', message: 'm' } }, '#.value'] }, { input }).type).to.deep.equal({ type: 'number' });
+            const cond = infer({ $cond: [['#.t', '#.value'], ['else', { $throw: { code: 'c', message: 'm' } }]] }, { input });
+            expect(cond.type).to.deep.equal({ type: 'number' });
+        });
+        it('reports a non-string code or message', () => {
+            expect(lint({ $throw: { code: 1, message: 'm' } })[0]).to.include({ severity: 'error', path: '/$throw/code' });
+            expect(lint({ $throw: { code: 'c', message: true } })[0]).to.include({ severity: 'error', path: '/$throw/message' });
+            const { problems } = infer({ $throw: { code: 'c', message: '#.n' } }, { input: { type: 'object', properties: { n: { type: 'number' } } } });
+            expect(problems[0]).to.include({ code: 'type-mismatch', path: '/$throw/message' });
+        });
+        it('lint accepts it as an expression and rejects an unknown argument', () => {
+            expect(lint({ $if: [true, { $throw: { code: 'c', message: 'm' } }, 1] })).to.deep.equal([]);
+            expect(lint({ $throw: { code: 'c', message: 'm', extra: 1 } })[0]).to.include({ severity: 'error', path: '/$throw/extra' });
+            expect(lint({ $throw: { code: 'c' } })[0]).to.include({ severity: 'error' });
+        });
+    });
 });

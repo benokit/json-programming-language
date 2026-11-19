@@ -1,3 +1,4 @@
+import { NEVER } from './types.js';
 import { printf } from 'fast-printf';
 import { concat, divide, every, filter, find, first, get, groupBy, gt, gte, includes, isArray, isEqual, isNil, isPlainObject, join, keyBy, keys, lt, lte, map, mapValues, max, merge, min, multiply,
     omit, orderBy, pick, reduce, round, some, split, subtract, sum, tail, take, takeWhile, uniqWith, values, zipObject, zipWith } from 'lodash-es'
@@ -5,13 +6,15 @@ import { concat, divide, every, filter, find, first, get, groupBy, gt, gte, incl
 /**
  * A problem found while a program runs, e.g. an operand that is missing.
  * `path` is a JSON Pointer to the offending node of the program, `code` a stable identifier.
+ * `$throw` raises one with the author's `message` as written (`exact`) and the author's `data`.
  */
 export class LambdaJSONRuntimeError extends Error {
-    constructor(code, path, message) {
-        super(`${message} (at ${path || '/'})`);
+    constructor(code, path, message, { data, exact = false } = {}) {
+        super(exact ? message : `${message} (at ${path || '/'})`);
         this.name = 'LambdaJSONRuntimeError';
         this.code = code;
         this.path = path;
+        this.data = data;
     }
 }
 
@@ -135,6 +138,26 @@ const primitiveTable = {
             return null;
         };
     }),
+    $throw: special((argument, { compile, fail, path }) => {
+        if (!isPlainObject(argument)) fail('takes { code, message, data? }');
+        for (const key of Object.keys(argument)) {
+            if (!['code', 'message', 'data'].includes(key)) fail(`has no parameter '${key}', expected { code, message, data? }`, key);
+        }
+        for (const key of ['code', 'message']) {
+            if (!(key in argument)) fail(`requires '${key}', expected { code, message, data? }`);
+            if (typeof argument[key] !== 'string' && !isPlainObject(argument[key])) fail(`'${key}' is a string`, key);
+        }
+        const code = compile(argument.code, 'code');
+        const message = compile(argument.message, 'message');
+        const data = 'data' in argument ? compile(argument.data, 'data') : undefined;
+        return x => {
+            const [c, m] = [code(x), message(x)];
+            for (const [key, v] of [['code', c], ['message', m]]) {
+                if (typeof v !== 'string') throw new LambdaJSONRuntimeError('invalid-throw', path, `$throw: '${key}' must be a string, got ${v === null ? 'null' : typeof v}`);
+            }
+            throw new LambdaJSONRuntimeError(c, path, m, { data: data?.(x), exact: true });
+        };
+    }, { description: '$throw: { code, message, data? }, fails the computation with an error the author chooses' }),
     $and: variadic('$and', true, v => !v),
     $or: variadic('$or', false, v => !!v),
     $not: f => x => !f(x),
@@ -239,7 +262,7 @@ const signatures = {
     $literal: sig('any', 'any'), $template: sig({ with: 'object', mapping: 'any' }, 'any'), $: sig('any', 'function'), $in: sig('any', 'any'), $return: sig('any', 'any'),
     $apply: sig({ fn: 'function', to: 'any', as: 'names' }, 'any'),
     $pipeline: sig('array<function>', 'any'),
-    $if: sig('array', 'any'), $cond: sig('array', 'any'), $and: sig('array', 'any'), $or: sig('array', 'any'),
+    $if: sig('array', 'any'), $throw: sig({ code: 'string', message: 'string', data: 'any' }, NEVER), $cond: sig('array', 'any'), $and: sig('array', 'any'), $or: sig('array', 'any'),
     $not: sig('any', 'boolean'), $negate: sig('any', 'boolean'),
     $eq: sig('array', 'boolean'), $neq: sig('array', 'boolean'),
     $lt: sig(numbers, 'boolean'), $lte: sig(numbers, 'boolean'), $gt: sig(numbers, 'boolean'), $gte: sig(numbers, 'boolean'),

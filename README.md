@@ -189,6 +189,8 @@ Without `as`, `$fold` and `$zip` pass the pair as `#`, read as `#0` and `#1`.
 * `{ "$if": [test, then, else] }`: the `else` is optional and defaults to `null`. Only the chosen branch is evaluated.
 * `{ "$cond": [[test, value], …] }`: the value of the first clause whose test is truthy, or `null`.
   The string `"else"` is truthy, so `["else", value]` reads as a default clause.
+* `{ "$throw": { "code", "message", "data"? } }` fails the computation with a `LambdaJSONRuntimeError` carrying `code`, `message` (exactly as written, no path suffix) and `data`; `error.path` is the node.
+  Each argument is an expression, evaluated only when the `$throw` is reached, so `{ "$if": [test, { "$throw": … }, value] }` raises only when `test` holds. Its type is `never`, so it doesn't widen its siblings.
 * `{ "$and": [a, b, …] }` and `{ "$or": [a, b, …] }` short-circuit and return the deciding value, like `&&` and `||`.
   `$and` of nothing is `true`, `$or` of nothing is `false`. Given an expression instead of an array, they apply to the array it evaluates to.
 * `{ "$not": x }` is the boolean negation (`$negate` is the same).
@@ -229,7 +231,7 @@ Without `as`, `$fold` and `$zip` pass the pair as `#`, read as `#0` and `#1`.
 | `$` | expression: a lambda `v => …` with `v` as `#`, used in `$pipeline` |
 | `$pipeline` | array of lambdas, applied to the input in turn |
 | `$apply` | `{ fn, to=#, as? }` |
-| `$if`, `$cond`, `$and`, `$or` | see above |
+| `$if`, `$cond`, `$and`, `$or`, `$throw` | see above |
 | `$not`, `$negate` | expression |
 | `$eq`, `$neq`, `$lt`, `$lte`, `$gt`, `$gte` | `[a, b]` |
 | `$sum` | array of numbers |
