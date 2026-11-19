@@ -1003,7 +1003,8 @@ describe('pure json programming language', () => {
     describe('signatures', () => {
         it('primitives declare their types', () => {
             expect(signatureOf('$sum')).to.deep.equal({ takes: 'array<number>', returns: 'number' });
-            expect(signatureOf('$map').takes).to.include({ fn: 'function', over: 'array' });
+            expect(signatureOf('$map').takes).to.include({ fn: 'function' });
+            expect(signatureOf('$filter').takes).to.include({ predicate: 'function', collection: 'array' });
             expect(signatureOf('$map').returns).to.equal('array');
         });
         it('a custom primitive without a signature has none', () => {
@@ -1459,6 +1460,157 @@ describe('pure json programming language', () => {
         it('leaves functions and as parameters unchanged', () => {
             expect(compile({ $let: { $double: { $multiply: ['#', 2] }, k: 3 }, $double: '@k' })(null)).to.equal(6);
             expect(compile({ $map: { as: 'n', fn: { $sum: ['@n', 1] } } })([1, 2])).to.deep.equal([2, 3]);
+        });
+    });
+
+    describe('list typing (3.8.0)', () => {
+        const T = { type: 'object', properties: { k: { enum: ['a', 'b'] } }, required: ['k'], additionalProperties: false };
+        const list = { type: 'array', items: T };
+        const idiom = { $concat: [[], '#'] };
+        const typeOf = (program, input) => infer(program, { input });
+        const ok = (program, input, type) => {
+            const r = typeOf(program, input);
+            expect(r.problems).to.deep.equal([]);
+            expect(r.type).to.deep.equal(type);
+        };
+        it('$concat [[], x] keeps the item type for one value, a list, or either', () => {
+            ok(idiom, T, list);
+            ok(idiom, list, list);
+            ok(idiom, { anyOf: [T, list] }, list);
+        });
+        it('an item field keeps its enum after $map over the result', () => {
+            ok({ $map: { over: idiom, as: 'i', fn: '@i.k' } }, { anyOf: [T, list] }, { type: 'array', items: { enum: ['a', 'b'] } });
+        });
+        it('a nil member is appended as an item by $concat', () => {
+            const r = typeOf(idiom, { anyOf: [T, { type: 'null' }] });
+            expect(r.problems).to.deep.equal([]);
+            expect(r.type.items.anyOf).to.have.length(2);
+        });
+        it('joins typed lists and a single value', () => {
+            const input = { type: 'object', properties: { a: { type: 'array', items: { type: 'number' } }, b: { type: 'string' }, c: { type: 'array', items: { type: 'string' } } } , required: ['a', 'b', 'c'] };
+            const expected = { type: 'array', items: { anyOf: [{ type: 'number' }, { type: 'string' }] } };
+            ok({ $concat: ['#.a', '#.c'] }, input, expected);
+            ok({ $concat: ['#.a', '#.b'] }, input, expected);
+        });
+        it('an any operand gives any items', () => {
+            ok({ $concat: [[1], '#'] }, {}, { type: 'array', items: {} });
+        });
+        it('the flatten form types its items the same way', () => {
+            ok({ $concat: '#' }, { type: 'array', items: { anyOf: [T, list] } }, list);
+        });
+        it('all operands empty stays array<any>', () => {
+            ok({ $concat: [[], []] }, {}, { type: 'array', items: {} });
+        });
+        it('$concat runtime is unchanged', () => {
+            const f = compile({ $concat: [[], '#'] });
+            expect(f(1)).to.deep.equal([1]);
+            expect(f([1, 2])).to.deep.equal([1, 2]);
+            expect(f(null)).to.deep.equal([null]);
+        });
+        describe('$toList', () => {
+            const f = compile({ $toList: '#' });
+            it('runs for a value, a list, nil', () => {
+                expect(f(1)).to.deep.equal([1]);
+                expect(f([1, 2])).to.deep.equal([1, 2]);
+                expect(f(null)).to.deep.equal([]);
+                expect(f(undefined)).to.deep.equal([]);
+            });
+            it('types', () => {
+                for (const input of [T, list, { anyOf: [T, list] }, { anyOf: [T, { type: 'null' }] }, { anyOf: [list, { type: 'null' }] }]) ok({ $toList: '#' }, input, list);
+                ok({ $toList: null }, {}, { type: 'array', prefixItems: [], items: false });
+            });
+        });
+    });
+
+    describe('$map over an object (3.8.0)', () => {
+        const program = { $map: { over: '#', as: ['v', 'k'], fn: { key: '@k', value: '@v' } } };
+        it('runs', () => {
+            expect(compile(program)({ a: 1, b: 'x' })).to.deep.equal([{ key: 'a', value: 1 }, { key: 'b', value: 'x' }]);
+            expect(compile(program)([5])).to.deep.equal([{ key: 0, value: 5 }]);
+        });
+        it('types a record and a dictionary', () => {
+            const record = { type: 'object', properties: { a: { type: 'number' }, b: { type: 'string' } }, required: ['a', 'b'], additionalProperties: false };
+            let r = infer(program, { input: record });
+            expect(r.problems).to.deep.equal([]);
+            expect(r.type.items.properties.key).to.deep.equal({ type: 'string', enum: ['a', 'b'] });
+            expect(r.type.items.properties.value.anyOf).to.have.length(2);
+            r = infer(program, { input: { type: 'object', additionalProperties: { type: 'number' } } });
+            expect(r.problems).to.deep.equal([]);
+            expect(r.type.items.properties).to.deep.equal({ key: { type: 'string' }, value: { type: 'number' } });
+        });
+        it('keeps [item, index] for a list and rejects other types', () => {
+            const r = infer(program, { input: { type: 'array', items: { type: 'boolean' } } });
+            expect(r.type.items.properties).to.deep.equal({ key: { type: 'number' }, value: { type: 'boolean' } });
+            expect(infer(program, { input: { type: 'number' } }).problems.map(p => p.code)).to.deep.equal(['type-mismatch']);
+            expect(infer(program, { input: { type: 'string' } }).problems.map(p => p.code)).to.deep.equal(['type-mismatch']);
+        });
+    });
+
+    describe('$isArray (3.8.0)', () => {
+        it('tells lists from everything else', () => {
+            const f = compile({ $isArray: '#' });
+            expect([[], [1], {}, 1, 'a', null].map(v => f(v))).to.deep.equal([true, true, false, false, false, false]);
+        });
+        it('is boolean for any input type', () => {
+            const r = infer({ $isArray: '#' }, { input: { anyOf: [{ type: 'string' }, { type: 'array' }] } });
+            expect(r.type).to.deep.equal({ type: 'boolean' });
+            expect(r.problems).to.deep.equal([]);
+        });
+    });
+
+    describe('reads (3.8.0)', () => {
+        const reads = (program, options) => infer(program, options).reads;
+        it('a path', () => {
+            expect(reads('#.a.b.c')).to.deep.equal([['a', 'b', 'c']]);
+            expect(reads('#')).to.deep.equal([[]]);
+            expect(reads({ $sum: ['#0', '#.a[1]'] })).to.deep.equal([['0'], ['a', '1']]);
+        });
+        it('resolves a $let alias', () => {
+            expect(reads({ $let: { c: '#.a.b' }, $in: '@c.d' })).to.deep.equal([['a', 'b', 'd']]);
+            expect(reads({ $let: { c: '#.a', d: '@c.b' }, $in: '@d.e' })).to.deep.equal([['a', 'b', 'e']]);
+        });
+        it('reads a value used as a whole in full', () => {
+            expect(reads({ $keys: '#.a' })).to.deep.equal([['a']]);
+            expect(reads({ $keys: '#.entities' })).to.deep.equal([['entities']]);
+            expect(reads({ $let: { c: '#.a' }, $keys: '@c' })).to.deep.equal([['a']]);
+        });
+        it('$get', () => {
+            expect(reads({ $get: { object: '#.a', path: '#.k' } })).to.deep.equal([['a'], ['k']]);
+            expect(reads({ $get: { object: '#.a', path: ['b', 'c'] } })).to.deep.equal([['a', 'b', 'c']]);
+            expect(reads({ $get: { object: '#.a', path: 'b.c' } })).to.deep.equal([['a', 'b', 'c']]);
+            expect(reads({ $get: { path: 'b' } })).to.deep.equal([['b']]);
+            expect(reads({ $let: { c: '#.a' }, $get: { object: '@c', path: 'b' } })).to.deep.equal([['a', 'b']]);
+        });
+        it('counts every branch', () => {
+            expect(reads({ $if: ['#.x', '#.a', '#.b'] })).to.deep.equal([['x'], ['a'], ['b']]);
+            expect(reads({ $cond: [['#.x', '#.a'], ['else', '#.b']] })).to.deep.equal([['x'], ['a'], ['b']]);
+        });
+        it('an unread $let binding contributes nothing; a binding read twice contributes once', () => {
+            expect(reads({ $let: { c: '#.a', d: { $keys: '#.z' } }, $in: '@c.x' })).to.deep.equal([['a', 'x']]);
+            expect(reads({ $let: { d: { $keys: '#.z' } }, $str: ['@d', '@d'] })).to.deep.equal([['z']]);
+        });
+        it('a lambda reads the list in full and the parameter nothing more', () => {
+            expect(reads({ $map: { over: '#.items', as: 'i', fn: '@i.price' } })).to.deep.equal([['items']]);
+            expect(reads({ $map: { over: '#.items', fn: '#.price' } })).to.deep.equal([['items']]);
+            expect(reads({ $map: { fn: '#.price' } })).to.deep.equal([[]]);
+            expect(reads({ $map: { over: '#.items', as: 'i', fn: { $sum: ['@i.price', '#.tax'] } } })).to.deep.equal([['items'], ['tax']]);
+        });
+        it('a parameter shadows a variable of the same name', () => {
+            expect(reads({ $let: { i: '#.a' }, $map: { over: '#.items', as: 'i', fn: '@i.price' } })).to.deep.equal([['items']]);
+        });
+        it('drops a path that has a prefix in the list', () => {
+            expect(reads({ $sum: ['#.a.b', '#.a', '#.a.c', '#.a'] })).to.deep.equal([['a']]);
+        });
+        it('functions: arguments are read, the body sees its own input', () => {
+            expect(reads({ $let: { $f: { $sum: ['#', 1] } }, $f: '#.n' })).to.deep.equal([['n']]);
+            expect(reads({ $let: { $f: { $fn: { as: 'x', body: { $sum: ['@x', '#.k'] } } } }, $f: '#.n' })).to.deep.equal([['n'], ['k']]);
+        });
+        it('nothing read gives [], and a program that does not check still reports what it resolved', () => {
+            expect(reads({ $sum: [1, 2] })).to.deep.equal([]);
+            expect(reads({ $sum: ['#.a', 'x'] }, { input: { type: 'object', properties: { a: { type: 'number' } } } })).to.deep.equal([['a']]);
+        });
+        it('a template reads its bindings, not its mapping', () => {
+            expect(reads({ $template: { with: { v: '#.a' }, mapping: { x: '@v', y: '#.b' } } })).to.deep.equal([['a']]);
         });
     });
 });

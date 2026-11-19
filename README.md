@@ -192,6 +192,10 @@ Without `as`, `$fold` and `$zip` pass the pair as `#`, read as `#0` and `#1`.
   The string `"else"` is truthy, so `["else", value]` reads as a default clause.
 * `{ "$throw": { "code", "message", "data"? } }` fails the computation with a `LambdaJSONRuntimeError` carrying `code`, `message` (exactly as written, no path suffix) and `data`; `error.path` is the node.
   Each argument is an expression, evaluated only when the `$throw` is reached, so `{ "$if": [test, { "$throw": … }, value] }` raises only when `test` holds. Its type is `never`, so it doesn't widen its siblings.
+* `{ "$concat": [a, b, …] }` joins lists; an operand that is not a list is appended as one item (`[[], 1]` is `[1]`, `[[], null]` is `[null]`).
+  `{ "$toList": x }` is the same for one operand, except that a nil gives `[]`. Both keep the item type in `infer`: `[[], x]` with `x: T`, `T[]` or `T | T[]` is `array<T>`.
+* `{ "$map": { "over": object, "as": ["value", "key"], "fn": … } }` maps the entries of an object to a list; with a list, `as` is `[item, index]`.
+* `{ "$isArray": x }` is `true` for a list, `false` for anything else, nil included.
 * `{ "$and": [a, b, …] }` and `{ "$or": [a, b, …] }` short-circuit and return the deciding value, like `&&` and `||`.
   `$and` of nothing is `true`, `$or` of nothing is `false`. Given an expression instead of an array, they apply to the array it evaluates to.
 * `{ "$not": x }` is the boolean negation (`$negate` is the same).
@@ -245,7 +249,7 @@ Without `as`, `$fold` and `$zip` pass the pair as `#`, read as `#0` and `#1`.
 | `$take` | `{ while?, count?, from=#, as? }` |
 | `$zip` | `{ with?, sequences=#, as? }` |
 | `$fold` | `{ with, init?, collection=#, as? }` |
-| `$head`, `$tail`, `$concat`, `$keys`, `$values`, `$merge`, `$coalesce` | expression |
+| `$head`, `$tail`, `$concat`, `$toList`, `$keys`, `$values`, `$merge`, `$coalesce` | expression |
 | `$get` | `{ object=#, path }` |
 | `$includes` | `{ collection=#, value }` |
 | `$str` | expression or array |
@@ -261,7 +265,7 @@ Without `as`, `$fold` and `$zip` pass the pair as `#`, read as `#0` and `#1`.
 | `$find` | `{ predicate, collection=#, as? }` |
 | `$pick`, `$omit` | `{ keys, object=# }` |
 | `$lower`, `$upper`, `$trim` | string |
-| `$isNil` | expression |
+| `$isNil`, `$isArray` | expression |
 | `$literal` | any value, not evaluated |
 | `$capture` | `{ values?, in }` |
 | `$template` | `{ with?, mapping }` |
@@ -271,7 +275,7 @@ Without `as`, `$fold` and `$zip` pass the pair as `#`, read as `#0` and `#1`.
 ## Signatures
 
 Every built-in primitive declares its types: `signatureOf('$sum')` is `{ takes: 'array<number>', returns: 'number' }`,
-and `signatureOf('$map')` has `takes: { fn: 'function', over: 'array', as: 'names' }` and `returns: 'array'`.
+and `signatureOf('$map')` has `takes: { fn: 'function', over: { anyOf: [{ type: 'object' }, { type: 'array' }] }, as: 'names' }` and `returns: 'array'`.
 Types are `any`, `number`, `string`, `boolean`, `object`, `function`, `names`, `array` and `array<T>`. Tools use
 them to infer the output type of a program. A custom primitive declares its own with `typed(primitive, { takes, returns })`;
 without it `signatureOf` returns `undefined`.
@@ -305,6 +309,12 @@ infer({ $return: "#.lnes" }, { input }).problems;
   **Warnings** are possible: `possibly-missing-operand` (a nullable operand of arithmetic or ordering),
   `impossible-comparison` (`$eq` of disjoint types), plus `lint`'s.
 * Functions declared in `$let` are inferred at each call; a recursive call has type `{}`.
+* `reads` lists the paths of the input (`#`) the program reads, each an array of keys: `#.a.b` is `["a", "b"]`, `#` alone is `[]`.
+  An entry stands for the value at that path in full, so a change at `X` matters when an entry is a prefix of `X` or `X` a prefix of an entry.
+  Paths are followed through `$let` aliases (`{ "$let": { "c": "#.a" }, "$in": "@c.b" }` reads `["a", "b"]`) and a `$get` with a literal path;
+  a value used as a whole (`$keys`, `$merge`, a computed `$get` path, …) is read in full, a lambda over a list reads the list in full, every branch of
+  `$if` and `$cond` counts, and a `$let` binding that is never read adds nothing. A path with a prefix in the list is left out, and a program
+  that reads nothing from the input gives `[]`. A call of a function declared in `$let` reads its arguments and what its body reads from `#`.
 * A custom primitive's `typed(primitive, signature, infer?)` takes types as well as notation; `infer(argumentTypes, context)`
   computes the result type from the argument's type (an object of parameter types for named parameters).
 

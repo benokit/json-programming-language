@@ -1,4 +1,4 @@
-import { isArray, isEqual, isPlainObject, isString, mapValues, toPath } from 'lodash-es';
+import { isArray, isEqual, isPlainObject, isString, mapValues, omit, toPath } from 'lodash-es';
 import { primitives as builtins } from './primitives.js';
 import { lint } from './js-compiler.js';
 import { isLiteralCall, occurrence, protectKey, protectString } from './template.js';
@@ -18,11 +18,13 @@ const isTuple = t => t.type === 'array' && t.items === false && t.prefixItems !=
  * problems that are certain (errors) or possible (warnings) before it runs.
  * @param {any} program
  * @param {{ input?: object, vars?: object, primitives?: object }} options types as JSON Schema
- * @returns {{ type: object, problems: { severity: 'error' | 'warning', code: string, path: string, message: string }[] }}
+ * @returns {{ type: object, problems: { severity: 'error' | 'warning', code: string, path: string, message: string }[], reads: string[][] }}
+ *   `reads` are the paths of the input (`#`) the program reads, each as an array of keys (`#.a.b` is `['a', 'b']`, `#` is `[]`).
+ *   An entry stands for the value at that path in full; a path that has a prefix in the list is left out.
  */
 export function infer(program, { input = {}, vars = {}, primitives: extended = {} } = {}) {
     const problems = lint(program, extended);
-    if (problems.some(p => p.severity === 'error')) return { type: ANY, problems };
+    if (problems.some(p => p.severity === 'error')) return { type: ANY, problems, reads: [] };
     const seen = new Set(problems.map(p => JSON.stringify(p)));
     const report = (severity, code, path, message) => {
         const problem = { severity, code, path, message };
@@ -33,8 +35,9 @@ export function infer(program, { input = {}, vars = {}, primitives: extended = {
         }
     };
     const engine = createEngine({ ...builtins, ...extended }, report);
-    const env = { input: toType(input), vars: mapValues(vars, toType), funcs: new Map() };
-    return { type: engine.tree(env, program, ''), problems };
+    const env = { input: toType(input), inputPath: [], vars: mapValues(vars, toType), origins: {}, funcs: new Map() };
+    const type = engine.tree(env, program, '');
+    return { type, problems, reads: engine.reads() };
 }
 
 function createEngine(prims, report) {
@@ -42,6 +45,48 @@ function createEngine(prims, report) {
 
     const error = (code, path, message) => report('error', code, path, message);
     const warning = (code, path, message) => report('warning', code, path, message);
+
+    /**
+     * Reads of the input. `env.inputPath` is the path `#` stands for (null where `#` is a computed value, e.g. the item of
+     * a lambda); `env.origins[name]` says where a variable comes from: `{ path }` for an alias of an input path, `{ reads }`
+     * for a computed value (its reads count where it is read), nothing for a parameter (its source was read already).
+     */
+    const root = new Map();
+    let sink = root;
+    const record = p => { if (p) sink.set(JSON.stringify(p), p); };
+    const capture = fn => {
+        const saved = sink;
+        sink = new Map();
+        try { return [fn(), sink]; } finally { sink = saved; }
+    };
+    const inputSegments = node => {
+        let p = node.slice(1);
+        p = /^\d/.test(p) ? `[${p[0]}]` + p.slice(1) : p;
+        p = p.startsWith('.') ? p.slice(1) : p;
+        return toPath(p);
+    };
+    /** The input path a string expression reads in full, or null when it is not a plain path. */
+    const pathOf = (env, node) => {
+        if (!isString(node)) return null;
+        if (node.startsWith('#')) return env.inputPath ? [...env.inputPath, ...inputSegments(node)] : null;
+        if (node.startsWith('@')) {
+            const [name, ...rest] = toPath(node.slice(1));
+            const origin = env.origins[name];
+            return origin?.path ? [...origin.path, ...rest] : null;
+        }
+        return null;
+    };
+    /** The keys of a literal `$get` path (a string, a number or an array of them), or null when it is computed. */
+    const pathKeys = node => {
+        const one = n => typeof n === 'number' ? [String(n)] : isString(n) ? (n.startsWith('\\') ? [n.slice(1)] : /^[#@]/.test(n) ? null : toPath(n)) : null;
+        if (!isArray(node)) return one(node);
+        const parts = node.map(one);
+        return parts.every(x => x !== null) ? parts.flat() : null;
+    };
+    const finalReads = () => {
+        const all = [...root.values()];
+        return all.filter(p => !all.some(q => q.length < p.length && q.every((k, i) => k === p[i])));
+    };
 
     function tree(env, node, path) {
         if (env.quote && (isString(node) || isPlainObject(node))) return quoted(env, node, path);
@@ -63,13 +108,11 @@ function createEngine(prims, report) {
 
     function string(env, node, path) {
         if (node.startsWith('\\')) return literalType(node.slice(1));
-        if (node === '#') return env.input;
+        if (node === '#') { record(env.inputPath); return env.input; }
         const fail = message => error('unknown-path', path, message);
         if (node.startsWith('#')) {
-            let p = node.slice(1);
-            p = /^\d/.test(p) ? `[${p[0]}]` + p.slice(1) : p;
-            p = p.startsWith('.') ? p.slice(1) : p;
-            return walkPath(env.input, toPath(p), fail);
+            record(pathOf(env, node));
+            return walkPath(env.input, inputSegments(node), fail);
         }
         if (node.startsWith('@')) {
             const [name, ...rest] = toPath(node.slice(1));
@@ -77,6 +120,9 @@ function createEngine(prims, report) {
                 error('unknown-variable', path, `'${name ?? ''}' is not bound by an enclosing '${LET}' or 'as'`);
                 return ANY;
             }
+            const origin = env.origins[name];
+            if (origin?.path) record([...origin.path, ...rest]);
+            else origin?.reads.forEach(p => record(p));
             return walkPath(env.vars[name], rest, fail);
         }
         return literalType(node);
@@ -90,12 +136,16 @@ function createEngine(prims, report) {
         const letPath = pointer(path, LET);
         const declarations = node[LET];
         const funcs = new Map(env.funcs);
-        const inner = { ...env, funcs, vars: { ...env.vars } };
+        const inner = { ...env, funcs, vars: { ...env.vars }, origins: { ...env.origins } };
         for (const name of Object.keys(declarations)) {
             if (name.startsWith('$')) funcs.set(name, { tree: declarations[name], path: pointer(letPath, name), funcs });
         }
         for (const name of Object.keys(declarations)) {
-            if (!name.startsWith('$')) inner.vars[name] = tree(inner, declarations[name], pointer(letPath, name));
+            if (name.startsWith('$')) continue;
+            const [type, reads] = capture(() => tree(inner, declarations[name], pointer(letPath, name)));
+            const alias = pathOf(inner, declarations[name]);
+            inner.vars[name] = type;
+            inner.origins[name] = alias ? { path: alias } : { reads: [...reads.values()] };
         }
         return head(inner, key, node[key], path);
     }
@@ -113,9 +163,10 @@ function createEngine(prims, report) {
         active.add(decl);
         try {
             const fn = isPlainObject(decl.tree) && Object.keys(decl.tree).length === 1 ? decl.tree.$fn : undefined;
-            if (fn === undefined) return tree({ input: arg, vars: env.vars, funcs: decl.funcs }, decl.tree, decl.path);
+            if (fn === undefined) return tree({ input: arg, inputPath: null, vars: env.vars, origins: env.origins, funcs: decl.funcs }, decl.tree, decl.path);
             const vars = { ...env.vars, ...bindParameters(fn.as, arg, path) };
-            return tree({ input: env.input, vars, funcs: decl.funcs }, fn.body, pointer(decl.path, '$fn', 'body'));
+            const origins = omit(env.origins, isArray(fn.as) ? fn.as : [fn.as]);
+            return tree({ input: env.input, inputPath: env.inputPath, vars, origins, funcs: decl.funcs }, fn.body, pointer(decl.path, '$fn', 'body'));
         } finally {
             active.delete(decl);
         }
@@ -232,6 +283,10 @@ function createEngine(prims, report) {
         const rule = builtin ? NAMED[key] : undefined;
         const types = {};
         const lambdas = {};
+        // a `$get` with a literal path reads that path of the object, not the object in full
+        const keys = builtin && key === '$get' ? pathKeys(value.path) : null;
+        const objectPath = keys && ('object' in value ? pathOf(env, value.object) : env.inputPath);
+        const refined = objectPath ? [...objectPath, ...keys] : null;
         for (const [k, v] of Object.entries(value)) {
             const argPath = pointer(path, k);
             if (k === 'as') continue;
@@ -240,16 +295,19 @@ function createEngine(prims, report) {
                 continue;
             }
             // an untyped argument may be a lambda of `as`: bind its names to any value
-            types[k] = tree(takes[k] === undefined && value.as !== undefined ? bind(env, value.as) : env, v, argPath);
+            const scope = takes[k] === undefined && value.as !== undefined ? bind(env, value.as) : env;
+            types[k] = refined && k === 'object' ? capture(() => tree(scope, v, argPath))[0] : tree(scope, v, argPath);
             if (takes[k] !== undefined) check(toType(takes[k]), types[k], argPath, `'${k}'`, v);
         }
         for (const spec of prim.params) {
             const name = spec.replace(/(=#|\?)$/, '');
             if (spec.endsWith('=#') && !(name in types) && !(name in lambdas)) {
                 types[name] = env.input;
+                if (!refined) record(env.inputPath);
                 if (takes[name] !== undefined) check(toType(takes[name]), env.input, path, `the input`);
             }
         }
+        record(refined);
         const as = value.as === undefined ? undefined : isArray(value.as) ? value.as : [value.as];
         const bodies = {};
         for (const k of Object.keys(lambdas)) {
@@ -262,13 +320,13 @@ function createEngine(prims, report) {
 
     function bind(env, as) {
         const names = isArray(as) ? as : [as];
-        return { ...env, vars: { ...env.vars, ...Object.fromEntries(names.map(name => [name, ANY])) } };
+        return { ...env, vars: { ...env.vars, ...Object.fromEntries(names.map(name => [name, ANY])) }, origins: omit(env.origins, names) };
     }
 
     function lambda(env, [node, path], as, args, input = args[0] ?? ANY) {
         const scope = as === undefined
-            ? { ...env, input }
-            : { ...env, vars: { ...env.vars, ...Object.fromEntries(as.map((name, i) => [name, args[i] ?? ANY])) } };
+            ? { ...env, input, inputPath: null }
+            : { ...env, vars: { ...env.vars, ...Object.fromEntries(as.map((name, i) => [name, args[i] ?? ANY])) }, origins: omit(env.origins, as) };
         return tree(scope, node, path);
     }
 
@@ -303,7 +361,7 @@ function createEngine(prims, report) {
         },
         $template: (env, value, path) => template(env, value, path),
         $: (env, value, path) => {
-            tree({ ...env, input: ANY }, value, path);
+            tree({ ...env, input: ANY, inputPath: null }, value, path);
             return FUNCTION;
         },
         $if: (env, value, path) => {
@@ -429,6 +487,14 @@ function createEngine(prims, report) {
         return result;
     };
 
+    /** What an operand of `$concat` adds: the items of a list, a value that is not a list as itself; an empty list adds nothing. */
+    const contribution = t => union(...members(t).map(m => {
+        if (isAny(m)) return ANY;
+        if (m.type !== 'array') return m;
+        if (m.prefixItems === undefined && m.items === undefined) return ANY;
+        return union(...(m.prefixItems ?? []), ...(m.items === false ? [] : [m.items ?? ANY]));
+    }));
+
     const isArrayType = t => nonNull(t).type === 'array';
 
     const RESULTS = {
@@ -443,7 +509,11 @@ function createEngine(prims, report) {
         },
         $tail: a => arrayOf(itemOf(a)),
         $unique: a => arrayOf(itemOf(a)),
-        $concat: a => arrayOf(orAny(union(...operands(undefined, a, '').map(o => itemOf(o.type))))),
+        $concat: a => arrayOf(orAny(union(...operands(undefined, a, '').map(o => contribution(o.type))))),
+        $toList: a => {
+            const items = contribution(nonNull(a));
+            return isEqual(items, NEVER) ? tuple([]) : arrayOf(items);
+        },
         $keys: a => {
             const o = nonNull(a);
             const keys = o.type === 'object' && o.additionalProperties === false ? Object.keys(o.properties ?? {}) : null;
@@ -486,7 +556,22 @@ function createEngine(prims, report) {
     };
 
     const NAMED = {
-        $map: over('over', 'fn', b => arrayOf(b.fn)),
+        $map: {
+            fns: {
+                fn: (t, run) => {
+                    const parts = members(nonNull(t.over)).map(m => {
+                        if (m.type === 'object') {
+                            const keys = m.additionalProperties === false ? Object.keys(m.properties ?? {}) : [];
+                            return { value: valueOf(m), index: keys.length > 0 ? { type: 'string', enum: keys } : STRING };
+                        }
+                        if (m.type === 'array') return { value: itemOf(m), index: NUMBER };
+                        return { value: ANY, index: ANY };
+                    });
+                    return run([orAny(union(...parts.map(p => p.value))), orAny(union(...parts.map(p => p.index)))]);
+                }
+            },
+            result: (t, b) => arrayOf(b.fn),
+        },
         $filter: over('collection', 'predicate', (b, item) => arrayOf(item)),
         $any: over('collection', 'predicate', () => BOOLEAN),
         $all: over('collection', 'predicate', () => BOOLEAN),
@@ -541,5 +626,5 @@ function createEngine(prims, report) {
         },
     };
 
-    return { tree };
+    return { tree, reads: finalReads };
 }

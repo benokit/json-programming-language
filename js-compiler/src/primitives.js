@@ -204,6 +204,7 @@ const primitiveTable = {
     $head: f => x => first(f(x)),
     $tail: f => x => tail(f(x)),
     $concat: f => x => concat(...f(x)),
+    $toList: f => x => { const v = f(x); return v == null ? [] : concat(v); },
     $keys: f => x => keys(f(x)),
     $values: f => x => values(f(x)),
     $merge: f => x => merge({}, ...f(x)),
@@ -234,6 +235,7 @@ const primitiveTable = {
     $upper: f => x => toStr(f(x)).toUpperCase(),
     $trim: f => x => toStr(f(x)).trim(),
     $isNil: f => x => isNil(f(x)),
+    $isArray: f => x => isArray(f(x)),
     $parseInt: f => x => { const n = parseInt(f(x), 10); return isNaN(n) ? undefined : n; },
     $parseFloat: f => x => { const n = parseFloat(f(x)); return isNaN(n) ? undefined : n; },
 }
@@ -253,7 +255,7 @@ export const typed = (primitive, signature, infer) => {
 };
 
 const sig = (takes, returns) => ({ takes, returns });
-const over = (fn, collection, returns, extra = {}) => sig({ [fn]: 'function', [collection]: collection === 'of' ? 'object' : 'array', ...extra, as: 'names' }, returns);
+const over = (fn, collection, returns, extra = {}, kind = collection === 'of' ? 'object' : 'array') => sig({ [fn]: 'function', [collection]: kind, ...extra, as: 'names' }, returns);
 const numbers = 'array<number>';
 const container = { anyOf: [{ type: 'object' }, { type: 'array' }] };
 
@@ -267,7 +269,7 @@ const signatures = {
     $eq: sig('array', 'boolean'), $neq: sig('array', 'boolean'),
     $lt: sig(numbers, 'boolean'), $lte: sig(numbers, 'boolean'), $gt: sig(numbers, 'boolean'), $gte: sig(numbers, 'boolean'),
     $sum: sig(numbers, 'number'), $subtract: sig(numbers, 'number'), $multiply: sig(numbers, 'number'), $divide: sig(numbers, 'number'),
-    $map: over('fn', 'over', 'array'),
+    $map: over('fn', 'over', 'array', {}, container),
     $mapValues: over('fn', 'of', 'object'),
     $filter: over('predicate', 'collection', 'array'),
     $any: over('predicate', 'collection', 'boolean'),
@@ -279,7 +281,7 @@ const signatures = {
     $take: sig({ while: 'function', count: 'number', from: 'array', as: 'names' }, 'array'),
     $zip: sig({ with: 'function', sequences: 'array<array>', as: 'names' }, 'array'),
     $fold: sig({ with: 'function', init: 'any', collection: 'array', as: 'names' }, 'any'),
-    $head: sig('array', 'any'), $tail: sig('array', 'array'), $concat: sig('array<array>', 'array'),
+    $head: sig('array', 'any'), $tail: sig('array', 'array'), $concat: sig('array', 'array'), $toList: sig('any', 'array'),
     $keys: sig(container, 'array<string>'), $values: sig(container, 'array'), $merge: sig('array<object>', 'object'),
     $coalesce: sig('array', 'any'),
     $get: sig({ object: container, path: { anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'array', items: { anyOf: [{ type: 'string' }, { type: 'number' }] } }] } }, 'any'),
@@ -299,7 +301,7 @@ const signatures = {
     $pick: sig({ keys: 'array<string>', object: 'object' }, 'object'),
     $omit: sig({ keys: 'array<string>', object: 'object' }, 'object'),
     $lower: sig('string', 'string'), $upper: sig('string', 'string'), $trim: sig('string', 'string'),
-    $isNil: sig('any', 'boolean'),
+    $isNil: sig('any', 'boolean'), $isArray: sig('any', 'boolean'),
     $parseInt: sig('string', 'number'), $parseFloat: sig('string', 'number'),
 };
 
