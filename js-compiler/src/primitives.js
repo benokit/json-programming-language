@@ -259,7 +259,7 @@ const signatures = {
     $head: sig('array', 'any'), $tail: sig('array', 'array'), $concat: sig('array<array>', 'array'),
     $keys: sig(container, 'array<string>'), $values: sig(container, 'array'), $merge: sig('array<object>', 'object'),
     $coalesce: sig('array', 'any'),
-    $get: sig({ object: container, path: { anyOf: [{ type: 'string' }, { type: 'number' }] } }, 'any'),
+    $get: sig({ object: container, path: { anyOf: [{ type: 'string' }, { type: 'number' }, { type: 'array', items: { anyOf: [{ type: 'string' }, { type: 'number' }] } }] } }, 'any'),
     $includes: sig({ collection: 'array', value: 'any' }, 'boolean'),
     $str: sig('any', 'string'),
     $join: sig({ separator: 'string', strings: 'array' }, 'string'),

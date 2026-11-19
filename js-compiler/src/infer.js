@@ -518,8 +518,11 @@ function createEngine(prims, report) {
         },
         $get: {
             result: (t, b, path) => {
-                const literal = t.path && 'const' in t.path && typeof t.path.const === 'string';
-                return literal ? walkPath(t.object, toPath(t.path.const), message => error('unknown-path', pointer(path, 'path'), message)) : ANY;
+                const fail = message => error('unknown-path', pointer(path, 'path'), message);
+                const p = t.path && nonNull(t.path);
+                if (p && 'const' in p && typeof p.const === 'string') return walkPath(t.object, toPath(p.const), fail);
+                if (p && isTuple(p) && p.prefixItems.every(m => ['string', 'number'].includes(typeof m.const))) return walkPath(t.object, p.prefixItems.map(m => String(m.const)), fail);
+                return ANY;
             },
         },
         $pick: {

@@ -1043,6 +1043,13 @@ describe('pure json programming language', () => {
             expect(codes(run({ $get: { path: 'lines.0.pricee' } }))).to.deep.equal(['error unknown-path /$get/path']);
         });
 
+        it('types $get with an array path like the string path', () => {
+            expect(run({ $get: { path: ['lines', 0, 'price'] } }).problems).to.deep.equal([]);
+            expect(run({ $get: { object: '#', path: ['id'] } }).type).to.deep.equal({ type: 'string' });
+            expect(codes(run({ $get: { path: ['lines', 0, 'pricee'] } }))).to.deep.equal(['error unknown-path /$get/path']);
+            expect(run({ $get: { object: '#', path: ['$get', { $str: '#.id' }] } }).problems).to.deep.equal([]);
+        });
+
         it('an unknown input never causes a problem', () => {
             const r = infer({ $multiply: ['#.a.b', 2] });
             expect(r.problems).to.deep.equal([]);
