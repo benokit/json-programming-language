@@ -1,6 +1,6 @@
 
 import { expect } from 'chai';
-import { compile, lint, infer, typed, named, signatureOf, LambdaJSONError, LambdaJSONRuntimeError } from '../src/js-compiler.js'
+import { compile, compileModule, typeModule, lint, infer, typed, named, signatureOf, LambdaJSONError, LambdaJSONRuntimeError } from '../src/js-compiler.js'
 
 function example(description, { program, cases, input, output }, only = false) {
     const q = only ? it.only : it;
@@ -1611,6 +1611,264 @@ describe('pure json programming language', () => {
         });
         it('a template reads its bindings, not its mapping', () => {
             expect(reads({ $template: { with: { v: '#.a' }, mapping: { x: '@v', y: '#.b' } } })).to.deep.equal([['a']]);
+        });
+    });
+
+    describe('modules (3.9.0)', () => {
+        const pricing = { $net: f => x => f(x) / 1.2, $twice: f => x => f(x) * 2 };
+        const dates = { $days: f => x => f(x) * 24, $twice: f => x => f(x) + f(x) };
+        const code = (fn) => { try { fn(); } catch (e) { return e; } };
+        const compiled = (program, modules, primitives = {}) => compile(program, primitives, { modules });
+
+        describe('qualified calls', () => {
+            it('calls a member of an injected module', () => {
+                expect(compiled({ '$pricing/net': '#.gross' }, { pricing })({ gross: 120 })).to.equal(100);
+            });
+            it('fails with unknown-module for a module that is not injected', () => {
+                const e = code(() => compiled({ $sum: [1, { '$nope/net': 1 }] }, { pricing }));
+                expect(e).to.be.instanceOf(LambdaJSONError);
+                expect(e.code).to.equal('unknown-module');
+                expect(e.path).to.equal('/$sum/1/$nope~1net');
+            });
+            it('a member that the module does not have is an unknown-function', () => {
+                expect(code(() => compiled({ '$pricing/nope': 1 }, { pricing })).code).to.equal('unknown-function');
+            });
+            it('a host primitive of the same qualified name has priority', () => {
+                expect(compiled({ '$pricing/net': 120 }, { pricing }, { '$pricing/net': f => x => 'host' })(null)).to.equal('host');
+            });
+            it('rejects a module name that is not lowercase words joined by -', () => {
+                for (const name of ['Pricing', 'a_b', 'a--b', '-a', 'a.b', '']) {
+                    expect(code(() => compiled(1, { [name]: pricing })).code, name).to.equal('invalid-module-name');
+                }
+                expect(compiled({ '$versions-helper-set/net': 120 }, { 'versions-helper-set': pricing, '2': {} })(null)).to.equal(100);
+            });
+            it('lint reports it too', () => {
+                expect(lint({ '$nope/x': 1 }).map(p => p.code)).to.deep.equal(['unknown-module']);
+            });
+        });
+
+        describe('$include', () => {
+            it('brings the members of one and of two modules into scope', () => {
+                expect(compiled({ $include: ['pricing'], $in: { $net: 120 } }, { pricing })(null)).to.equal(100);
+                expect(compiled({ $include: ['pricing', 'dates'], $in: { $sum: [{ $net: 120 }, { $days: 3 }] } }, { pricing, dates })(null)).to.equal(172);
+            });
+            it('qualified calls still work inside', () => {
+                expect(compiled({ $include: ['pricing'], $in: { '$pricing/net': 120 } }, { pricing })(null)).to.equal(100);
+            });
+            it('the scope ends with $in', () => {
+                const program = { $sum: [{ $include: ['pricing'], $in: { $net: 120 } }, { $net: 1 }] };
+                const e = code(() => compiled(program, { pricing }));
+                expect(e.code).to.equal('unknown-function');
+                expect(e.path).to.equal('/$sum/1/$net');
+            });
+            it('an inner $include extends the outer one and shadows it', () => {
+                const one = { $a: f => x => 'one-a', $b: f => x => 'one-b' };
+                const two = { $a: f => x => 'two-a' };
+                const program = { $include: ['one'], $in: [{ $a: 0 }, { $include: ['two'], $in: [{ $a: 0 }, { $b: 0 }] }] };
+                expect(compiled(program, { one, two })(null)).to.deep.equal(['one-a', ['two-a', 'one-b']]);
+            });
+            it('sits beside $let, $include first', () => {
+                const program = { $include: ['pricing'], $let: { gross: 120 }, $in: { $net: '@gross' } };
+                expect(compiled(program, { pricing })(null)).to.equal(100);
+                // a $let binding sees the included names
+                expect(compiled({ $include: ['pricing'], $let: { net: { $net: 120 } }, $in: '@net' }, { pricing })(null)).to.equal(100);
+            });
+            it('a $let function shadows an included member, and an inner $include shadows a $let function', () => {
+                const program = { $include: ['pricing'], $let: { $net: { $fn: { as: 'v', body: 'let' } } }, $in: { $net: 1 } };
+                expect(compiled(program, { pricing })(null)).to.equal('let');
+                const inverse = { $let: { $net: { $fn: { as: 'v', body: 'let' } } }, $in: { $include: ['pricing'], $in: { $net: 120 } } };
+                expect(compiled(inverse, { pricing })(null)).to.equal(100);
+            });
+            it('is visible in lambda bodies and in $fn', () => {
+                expect(compiled({ $include: ['pricing'], $in: { $map: { as: 'v', fn: { $twice: '@v' } } } }, { pricing })([1, 2])).to.deep.equal([2, 4]);
+                const program = { $include: ['pricing'], $let: { $f: { $fn: { as: 'v', body: { $net: '@v' } } } }, $in: { $f: 120 } };
+                expect(compiled(program, { pricing })(null)).to.equal(100);
+            });
+            it('is not carried by $capture or $template', () => {
+                const capture = compiled({ $include: ['pricing'], $in: { $capture: { values: { a: 1 }, in: { $net: '@a' } } } }, { pricing })(null);
+                expect(capture).to.deep.equal({ $let: { a: 1 }, $in: { $net: '@a' } });
+                expect(code(() => compiled(capture, { pricing })).code).to.equal('unknown-function');
+                expect(compiled({ $include: ['pricing'], $in: { $template: { with: { v: 1 }, mapping: { $net: '@v' } } } }, { pricing })(null)).to.deep.equal({ $net: 1 });
+            });
+            it('an unknown module is unknown-module at the $include', () => {
+                const e = code(() => compiled({ $include: ['pricing', 'nope'], $in: 1 }, { pricing }));
+                expect(e.code).to.equal('unknown-module');
+                expect(e.path).to.equal('/$include');
+            });
+            it('takes a literal array of names', () => {
+                expect(code(() => compiled({ $include: 'pricing', $in: 1 }, { pricing })).code).to.equal('invalid-include');
+                expect(code(() => compiled({ $include: [1], $in: 1 }, { pricing })).code).to.equal('invalid-include');
+                expect(code(() => compiled({ $include: ['pricing'] }, { pricing })).code).to.equal('missing-body');
+            });
+            it('an ambiguous name is an error only when called, qualified calls work', () => {
+                const modules = { pricing, dates };
+                expect(compiled({ $include: ['pricing', 'dates'], $in: { $net: 120 } }, modules)(null)).to.equal(100);
+                const e = code(() => compiled({ $include: ['pricing', 'dates'], $in: { $twice: 2 } }, modules));
+                expect(e.code).to.equal('ambiguous-function');
+                expect(e.path).to.equal('/$in/$twice');
+                expect(e.data).to.deep.equal({ modules: ['pricing', 'dates'] });
+                expect(compiled({ $include: ['pricing', 'dates'], $in: ['$pricing/twice', '$dates/twice'].map(k => ({ [k]: 2 })) }, modules)(null)).to.deep.equal([4, 4]);
+            });
+            it('a member named like a primitive of the language is reserved', () => {
+                for (const run of [() => compiled(1, { m: { $map: f => x => f(x) } }), () => infer(1, { modules: { m: { $if: f => x => f(x) } } })]) {
+                    let e;
+                    try { e = run(); } catch (error) { e = error; }
+                    expect(e?.code ?? e?.problems?.[0]?.code).to.equal('reserved-function');
+                }
+            });
+            it('infer and lint see the same names', () => {
+                const typed_ = { $net: typed(pricing.$net, { takes: 'number', returns: 'number' }) };
+                expect(infer({ $include: ['pricing'], $in: { $net: 120 } }, { modules: { pricing: typed_ } })).to.deep.include({ type: { type: 'number' }, problems: [] });
+                expect(infer({ $include: ['pricing'], $in: { $net: 'x' } }, { modules: { pricing: typed_ } }).problems.map(p => p.code)).to.deep.equal(['type-mismatch']);
+                expect(infer({ '$pricing/net': 1 }, { modules: { pricing: typed_ } }).type).to.deep.equal({ type: 'number' });
+                expect(infer({ $include: ['pricing', 'dates'], $in: { $twice: 1 } }, { modules: { pricing, dates } }).problems.map(p => p.code)).to.deep.equal(['ambiguous-function']);
+                expect(infer({ $let: { $f: { $fn: { as: 'v', body: { $include: ['pricing'], $in: { $net: '@v' } } } } }, $f: 1 }, { modules: { pricing: typed_ } }).type).to.deep.equal({ type: 'number' });
+            });
+            it('names used in a $fn body are those of the place where it is declared', () => {
+                const typed_ = { $net: typed(pricing.$net, { takes: 'number', returns: 'number' }) };
+                const program = { $include: ['pricing'], $let: { $f: { $fn: { as: 'v', body: { $net: '@v' } } } }, $in: { $f: 1 } };
+                expect(infer(program, { modules: { pricing: typed_ } })).to.deep.include({ type: { type: 'number' }, problems: [] });
+            });
+        });
+
+        describe('compileModule', () => {
+            const source = {
+                functions: {
+                    $vat: { $multiply: ['#', 0.2] },
+                    $gross: { $sum: ['#.net', { $vat: '#.net' }] },
+                    $net: { $divide: ['#', 1.2] }
+                },
+                exports: ['$gross', '$net']
+            };
+            it('exports are reachable, private functions only from siblings', () => {
+                const module = compileModule(source);
+                expect(Object.keys(module)).to.deep.equal(['$gross', '$net']);
+                expect(compile({ '$p/gross': { net: 100 } }, {}, { modules: { p: module } })(null)).to.equal(120);
+                expect(code(() => compile({ '$p/vat': 1 }, {}, { modules: { p: module } })).code).to.equal('unknown-function');
+            });
+            it('without exports everything is exported', () => {
+                expect(Object.keys(compileModule({ functions: source.functions }))).to.deep.equal(['$vat', '$gross', '$net']);
+            });
+            it('rejects bad sources', () => {
+                expect(code(() => compileModule({ ...source, exports: ['$nope'] })).code).to.equal('unknown-export');
+                expect(code(() => compileModule({ ...source, signatures: { $nope: {} } })).code).to.equal('unknown-signature');
+                expect(code(() => compileModule({})).code).to.equal('invalid-module');
+                expect(code(() => compileModule({ functions: { vat: 1 } })).code).to.equal('invalid-module');
+                expect(code(() => compileModule({ functions: { '$a/b': 1 } })).code).to.equal('invalid-module');
+                expect(code(() => compileModule({ functions: { $map: 1 } })).code).to.equal('reserved-function');
+            });
+            it('a function can call a sibling declared after it', () => {
+                const module = compileModule({ functions: { $a: { $b: '#' }, $b: { $sum: ['#', 1] } } });
+                expect(module.$a(x => x.input)({ input: 1, vars: {} })).to.equal(2);
+            });
+            it('mutual recursion does not loop the compiler', () => {
+                const module = compileModule({ functions: {
+                    $even: { $if: [{ $eq: ['#', 0] }, true, { $odd: { $subtract: ['#', 1] } }] },
+                    $odd: { $if: [{ $eq: ['#', 0] }, false, { $even: { $subtract: ['#', 1] } }] }
+                } });
+                const run = n => compile({ '$m/even': '#' }, {}, { modules: { m: module } })(n);
+                expect([0, 1, 4, 7].map(run)).to.deep.equal([true, false, true, false]);
+            });
+            it('a function body can use $include of injected modules, or qualified calls', () => {
+                const module = compileModule({ functions: { $a: { $include: ['pricing'], $in: { $net: '#' } }, $b: { '$pricing/twice': '#' } } }, { modules: { pricing } });
+                const run = (name, v) => compile({ [`$m/${name}`]: v }, {}, { modules: { m: module } })(null);
+                expect(run('a', 120)).to.equal(100);
+                expect(run('b', 3)).to.equal(6);
+            });
+            it('uses the host primitives', () => {
+                const module = compileModule({ functions: { $a: { $host: '#' } } }, { primitives: { $host: f => x => `host ${f(x)}` } });
+                expect(compile({ '$m/a': 1 }, {}, { modules: { m: module } })(null)).to.equal('host 1');
+            });
+            it('the names of the calling program are invisible inside the module', () => {
+                const module = compileModule({ functions: { $a: '@x' } });
+                const program = { $let: { x: 1 }, '$m/a': 2 };
+                // `@x` is not bound in the module: the variable reads as undefined, not the caller's 1
+                expect(compile(program, {}, { modules: { m: module } })(null)).to.equal(undefined);
+                expect(code(() => compileModule({ functions: { $a: { $outer: 1 } } }, {})).code).to.equal('unknown-function');
+                const caller = { $let: { $outer: { $fn: { as: 'v', body: 'caller' } } }, $in: { '$m/a': 1 } };
+                const m2 = compileModule({ functions: { $a: { $outer: 1 } } }, { primitives: { $outer: f => x => 'host' } });
+                expect(compile(caller, {}, { modules: { m: m2 } })(null)).to.equal('host');
+            });
+            it('errors in a function carry its path', () => {
+                const e = code(() => compileModule({ functions: { $a: { $sum: [1, { $nope: 1 }] } } }));
+                expect(e.path).to.equal('/functions/$a/$sum/1/$nope');
+            });
+            it('attaches a declared signature to the export', () => {
+                const takes = { type: 'number' };
+                const module = compileModule({ functions: { $a: '#' }, signatures: { $a: { takes, returns: takes } } });
+                expect(signatureOf('$a', module)).to.deep.equal({ takes, returns: takes });
+            });
+        });
+
+        describe('typeModule', () => {
+            const number = { type: 'number' };
+            const source = {
+                functions: {
+                    $vat: { $multiply: ['#', 0.2] },
+                    $gross: { $sum: ['#.net', { $vat: '#.net' }] },
+                    $label: { $str: ['gross ', '#'] },
+                    $bad: { $str: '#' },
+                    $net: { $divide: ['#', 1.2] }
+                },
+                exports: ['$gross', '$label', '$net'],
+                signatures: {
+                    $gross: { takes: { type: 'object', properties: { net: number }, required: ['net'] }, returns: number },
+                    $net: { takes: number, returns: number }
+                }
+            };
+            it('exports typed primitives, unsigned ones with the inferred result type', () => {
+                const { module, problems } = typeModule(source);
+                expect(problems).to.deep.equal([]);
+                expect(Object.keys(module)).to.deep.equal(['$gross', '$label', '$net']);
+                const result = program => infer(program, { modules: { m: module } });
+                expect(result({ '$m/label': 1 })).to.deep.include({ type: { type: 'string' }, problems: [] });
+                expect(result({ '$m/net': 1 }).type).to.deep.equal(number);
+            });
+            it('checks the argument of a call against takes', () => {
+                const { module } = typeModule(source);
+                expect(infer({ '$m/net': 'x' }, { modules: { m: module } }).problems.map(p => p.code)).to.deep.equal(['type-mismatch']);
+                expect(infer({ '$m/gross': { net: 'x' } }, { modules: { m: module } }).problems.map(p => p.code)).to.deep.equal(['type-mismatch']);
+            });
+            it('reports a body whose result disagrees with returns', () => {
+                const { problems } = typeModule({ functions: { $a: { $str: '#' } }, signatures: { $a: { takes: number, returns: number } } });
+                expect(problems.map(p => [p.code, p.path])).to.deep.equal([['type-mismatch', '/functions/$a']]);
+            });
+            it('reports a path that takes does not have', () => {
+                const { problems } = typeModule({ functions: { $a: '#.gross' }, signatures: { $a: { takes: { type: 'object', properties: { net: number }, additionalProperties: false }, returns: number } } });
+                expect(problems.map(p => [p.code, p.path])).to.deep.equal([['unknown-path', '/functions/$a']]);
+            });
+            it('does not depend on the order of declaration, and a cycle is typed any', () => {
+                const forward = typeModule({ functions: { $a: { $b: '#' }, $b: { $sum: ['#', 1] } } });
+                const backward = typeModule({ functions: { $b: { $sum: ['#', 1] }, $a: { $b: '#' } } });
+                expect(forward.module.$a.signature.returns).to.deep.equal({ type: 'number' });
+                expect(backward.module.$a.signature.returns).to.deep.equal({ type: 'number' });
+                const cycle = typeModule({ functions: { $a: { $b: '#' }, $b: { $a: '#' } } });
+                expect(cycle.problems).to.deep.equal([]);
+                expect(cycle.module.$a.signature.returns).to.deep.equal({});
+            });
+            it('uses the injected modules and the host primitives', () => {
+                const inner = { $net: typed(pricing.$net, { takes: 'number', returns: 'number' }) };
+                const { module, problems } = typeModule({ functions: { $a: { $include: ['pricing'], $in: { $net: '#' } } } }, { modules: { pricing: inner } });
+                expect(problems).to.deep.equal([]);
+                expect(module.$a.signature.returns).to.deep.equal({ type: 'number' });
+                const host = typeModule({ functions: { $a: { $host: '#' } } }, { primitives: { $host: typed(f => x => f(x), { takes: 'any', returns: 'string' }) } });
+                expect(host.module.$a.signature.returns).to.deep.equal({ type: 'string' });
+            });
+            it('reports a structural error of the source as a problem', () => {
+                const { module, problems } = typeModule({ functions: {}, exports: ['$x'] });
+                expect(module).to.deep.equal({});
+                expect(problems.map(p => p.code)).to.deep.equal(['unknown-export']);
+            });
+            it('reports the problems of an unsigned function too', () => {
+                const { problems } = typeModule({ functions: { $a: { $sum: ['x', 1] } } });
+                expect(problems.map(p => p.path)).to.deep.equal(['/functions/$a/$sum/0']);
+            });
+        });
+
+        it('programs without modules are unaffected', () => {
+            expect(compile({ $sum: [1, 2] })(null)).to.equal(3);
+            expect(code(() => compile({ '$func/x': 1 })).code).to.equal('unknown-module');
+            expect(compile({ '$func/x': 1 }, { '$func/x': f => x => f(x) })(null)).to.equal(1);
         });
     });
 });

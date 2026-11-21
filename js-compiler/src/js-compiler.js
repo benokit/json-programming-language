@@ -1,30 +1,21 @@
 import { get, isArray, isPlainObject, isString, map, mapValues, zipObject } from 'lodash-es'
-import { primitives, LambdaJSONRuntimeError } from './primitives.js';
+import { primitives, typed, LambdaJSONRuntimeError } from './primitives.js';
+import { LambdaJSONError } from './errors.js';
+import { ambiguous, functionPath, includeModules, parseSource, qualifiedMembers, unknownModule } from './modules.js';
 import { isLiteralCall, occurrence, protect, protectKey } from './template.js';
 
 export {
     compile,
+    compileModule,
     lint,
     signatureOf,
     LambdaJSONError
 }
 export { primitives, named, special, call, typed, LambdaJSONRuntimeError } from './primitives.js';
-export { infer } from './infer.js';
-
-/**
- * A problem in the structure of a program, found while compiling it.
- * `path` is a JSON Pointer to the offending node, `code` a stable identifier.
- */
-class LambdaJSONError extends Error {
-    constructor(code, path, message) {
-        super(`${message} (at ${path || '/'})`);
-        this.name = 'LambdaJSONError';
-        this.code = code;
-        this.path = path;
-    }
-}
+export { infer, typeModule } from './infer.js';
 
 const LET = '$let';
+const INCLUDE = '$include';
 const FN = '$fn';
 const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 
@@ -33,11 +24,34 @@ const IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_-]*$/;
  * Throws a LambdaJSONError when the program is malformed.
  * @param {any} program
  * @param {object} extendedPrimitives
+ * @param {{ modules?: object }} options `modules`: injected modules, `{ name: { $member: primitive } }`,
+ *   called as `{ "$name/member": … }` or, after `$include`, as `{ "$member": … }`
  * @returns {function}
  */
-function compile(program, extendedPrimitives = {}) {
-    const f = compileProgram(program, extendedPrimitives, () => {});
+function compile(program, extendedPrimitives = {}, { modules = {} } = {}) {
+    const f = compileProgram(program, extendedPrimitives, () => {}, modules);
     return input => f({ input, vars: {} });
+}
+
+/**
+ * Turns the source of a module, written in LambdaJSON, into a module to inject:
+ * `{ functions: { $name: mapping }, exports?: [names], signatures?: { $name: { takes, returns } } }`.
+ * A function sees the primitives, the host's `primitives`, the injected `modules` (qualified) and the
+ * functions of its own module, private ones included; not the names of the program that calls it.
+ * @returns {object} the exported functions, as primitives
+ */
+function compileModule(source, { primitives: host = {}, modules = {} } = {}) {
+    const { functions, exports, signatures } = parseSource(source);
+    const bodies = {};
+    const own = Object.fromEntries(Object.keys(functions).map(name =>
+        [name, f => x => bodies[name]({ vars: {}, input: f(x) })]));
+    for (const name of Object.keys(functions)) {
+        bodies[name] = compileProgram(functions[name], { ...host, ...own }, () => {}, modules, functionPath(name));
+    }
+    return Object.fromEntries(exports.map(name => {
+        const { takes, returns } = signatures[name] ?? {};
+        return [name, signatures[name] ? typed(f => own[name](f), { takes, returns }) : own[name]];
+    }));
 }
 
 /**
@@ -45,13 +59,14 @@ function compile(program, extendedPrimitives = {}) {
  * that makes `compile` throw (if any) and warnings about needless escapes.
  * @param {any} program
  * @param {object} extendedPrimitives
+ * @param {{ modules?: object }} options
  * @returns {{ severity: 'error' | 'warning', code: string, path: string, message: string }[]}
  */
-function lint(program, extendedPrimitives = {}) {
+function lint(program, extendedPrimitives = {}, { modules = {} } = {}) {
     const problems = [];
     const warn = (code, path, message) => problems.push({ severity: 'warning', code, path, message });
     try {
-        compileProgram(program, extendedPrimitives, warn);
+        compileProgram(program, extendedPrimitives, warn, modules);
     } catch (error) {
         if (!(error instanceof LambdaJSONError)) throw error;
         problems.push({ severity: 'error', code: error.code, path: error.path, message: error.message });
@@ -68,13 +83,15 @@ function signatureOf(name, extendedPrimitives = {}) {
     return ({ ...primitives, ...extendedPrimitives })[name]?.signature;
 }
 
-function compileProgram(program, extendedPrimitives, warn) {
+function compileProgram(program, extendedPrimitives, warn, modules = {}, path = '') {
     const scope = {
-        primitives: { ...primitives, ...extendedPrimitives },
+        primitives: { ...qualifiedMembers(modules), ...primitives, ...extendedPrimitives },
+        modules,
+        included: new Map(),
         functions: new Set(),
         warn
     };
-    return compileTree(scope, program, '');
+    return compileTree(scope, program, path);
 }
 
 const pointer = (path, key) => `${path}/${String(key).replace(/~/g, '~0').replace(/\//g, '~1')}`;
@@ -110,23 +127,33 @@ function compileCall(scope, tree, path) {
             `escape the key as '\\${call}' for a plain object`);
     }
 
-    const calls = keys.filter(k => k !== LET);
-    if (calls.length === 0) fail('missing-body', path, `'${LET}' needs a call beside it`);
+    const calls = keys.filter(k => k !== LET && k !== INCLUDE);
+    if (calls.length === 0) fail('missing-body', path, `'${keys.includes(INCLUDE) ? INCLUDE : LET}' needs a call beside it`);
     if (calls.length > 1) fail('several-calls', path, `one call per object, found '${calls.join("', '")}'`);
     const key = calls[0];
 
+    // `$include` first: the names of its modules are in scope in the `$let` and in the body
+    let outer = scope;
+    if (keys.includes(INCLUDE)) {
+        const { included, names } = includeModules(scope.included, scope.modules, tree[INCLUDE], pointer(path, INCLUDE));
+        const functions = new Set(scope.functions);
+        names.forEach(name => functions.delete(name));
+        outer = { ...scope, included, functions };
+    }
+
     if (!keys.includes(LET)) {
-        return compileHead(scope, key, tree[key], path);
+        return compileHead(outer, key, tree[key], path);
     }
 
     const declarations = tree[LET];
     const letPath = pointer(path, LET);
     if (!isPlainObject(declarations)) fail('invalid-let', letPath, `'${LET}' is an object of declarations`);
-    const inner = { ...scope, functions: new Set(scope.functions) };
+    const inner = { ...outer, functions: new Set(outer.functions), included: new Map(outer.included) };
     for (const name of Object.keys(declarations)) {
         if (name.startsWith('$')) {
             if (scope.primitives[name] !== undefined) fail('shadowed-primitive', pointer(letPath, name), `'${name}' is a primitive and can't be redeclared`);
             inner.functions.add(name);
+            inner.included.delete(name);
         }
     }
     const getLocalVars = compileVars(inner, declarations, letPath);
@@ -139,13 +166,17 @@ function compileCall(scope, tree, path) {
 
 function compileHead(scope, key, value, path) {
     const argPath = pointer(path, key);
-    const primitive = scope.primitives[key];
+    const member = scope.included.get(key);
+    if (member?.ambiguous) throw ambiguous(key, member.ambiguous, argPath);
+    const primitive = member?.primitive ?? scope.primitives[key];
     if (primitive !== undefined) {
         return compilePrimitive(scope, key, primitive, value, argPath);
     }
     if (scope.functions.has(key)) {
         return compileFunctionCall(scope, key, value, argPath);
     }
+    const missing = unknownModule(key, scope.modules, argPath);
+    if (missing) throw missing;
     return fail('unknown-function', argPath, `unknown function '${key}': neither a primitive nor declared in an enclosing '${LET}'`);
 }
 

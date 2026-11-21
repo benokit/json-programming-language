@@ -32,6 +32,19 @@ and the errors and warnings (impossible paths, possibly missing operands, mismat
 comparisons, unbound variables) found from the type of the input, without running the program.
 See the language documentation.
 
+## Changes in 3.9.0
+
+* Modules: `compile(program, primitives, { modules })` and `infer(program, { modules })` take named objects of functions; call a member as
+  `{ "$mod/name": … }`, or bring a module's members into scope with `{ "$include": ["mod"], "$in": body }`.
+* `compileModule(source, options)` and `typeModule(source, options)` define a module in LambdaJSON, with private functions, exports and signatures.
+* New error codes: `unknown-module`, `invalid-module-name`, `invalid-include`, `ambiguous-function`, `reserved-function`, `invalid-module`, `unknown-export`, `unknown-signature`.
+* `lint(program, primitives, { modules })`. Programs without modules are unaffected.
+
+## Changes in 3.8.0
+
+* `infer` returns `reads`, the paths of the input a program reads. `$concat` keeps item types and accepts a value that is not a list;
+  new `$toList` and `$isArray`; `$map` runs over objects (`as: [value, key]`) and is typed that way.
+
 ## Changes in 3.5.0
 
 * `$template` is back, as in 3.3.0 (see below), next to `$capture`, which stays. Use `$template` to return a mapping as data with the names filled in (also as object keys); use `$capture` to bind names for a program to run later.

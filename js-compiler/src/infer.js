@@ -1,6 +1,8 @@
 import { isArray, isEqual, isPlainObject, isString, mapValues, omit, toPath } from 'lodash-es';
-import { primitives as builtins } from './primitives.js';
+import { primitives as builtins, typed } from './primitives.js';
 import { lint } from './js-compiler.js';
+import { LambdaJSONError } from './errors.js';
+import { functionPath, includeModules, parseSource, qualifiedMembers } from './modules.js';
 import { isLiteralCall, occurrence, protectKey, protectString } from './template.js';
 import {
     ANY, ARRAY, BOOLEAN, FUNCTION, NEVER, NULL, NUMBER, OBJECT, STRING,
@@ -9,6 +11,7 @@ import {
 } from './types.js';
 
 const LET = '$let';
+const INCLUDE = '$include';
 const pointer = (path, ...keys) => keys.reduce((p, key) => `${p}/${String(key).replace(/~/g, '~0').replace(/\//g, '~1')}`, path);
 const NUMBER_OR_STRING = union(NUMBER, STRING);
 const isTuple = t => t.type === 'array' && t.items === false && t.prefixItems !== undefined;
@@ -17,13 +20,14 @@ const isTuple = t => t.type === 'array' && t.items === false && t.prefixItems !=
  * Infers the type of the result of a program from the type of its input, and reports the
  * problems that are certain (errors) or possible (warnings) before it runs.
  * @param {any} program
- * @param {{ input?: object, vars?: object, primitives?: object }} options types as JSON Schema
+ * @param {{ input?: object, vars?: object, primitives?: object, modules?: object }} options types as JSON Schema;
+ *   `modules` are injected modules whose members are typed primitives (see `typeModule`)
  * @returns {{ type: object, problems: { severity: 'error' | 'warning', code: string, path: string, message: string }[], reads: string[][] }}
  *   `reads` are the paths of the input (`#`) the program reads, each as an array of keys (`#.a.b` is `['a', 'b']`, `#` is `[]`).
  *   An entry stands for the value at that path in full; a path that has a prefix in the list is left out.
  */
-export function infer(program, { input = {}, vars = {}, primitives: extended = {} } = {}) {
-    const problems = lint(program, extended);
+export function infer(program, { input = {}, vars = {}, primitives: extended = {}, modules = {} } = {}) {
+    const problems = lint(program, extended, { modules });
     if (problems.some(p => p.severity === 'error')) return { type: ANY, problems, reads: [] };
     const seen = new Set(problems.map(p => JSON.stringify(p)));
     const report = (severity, code, path, message) => {
@@ -34,13 +38,13 @@ export function infer(program, { input = {}, vars = {}, primitives: extended = {
             problems.push(problem);
         }
     };
-    const engine = createEngine({ ...builtins, ...extended }, report);
-    const env = { input: toType(input), inputPath: [], vars: mapValues(vars, toType), origins: {}, funcs: new Map() };
+    const engine = createEngine({ ...qualifiedMembers(modules), ...builtins, ...extended }, modules, report);
+    const env = { input: toType(input), inputPath: [], vars: mapValues(vars, toType), origins: {}, funcs: new Map(), included: new Map() };
     const type = engine.tree(env, program, '');
     return { type, problems, reads: engine.reads() };
 }
 
-function createEngine(prims, report) {
+function createEngine(prims, modules, report) {
     const active = new Set();
 
     const error = (code, path, message) => report('error', code, path, message);
@@ -130,15 +134,24 @@ function createEngine(prims, report) {
 
     function call(env, node, path) {
         const keys = Object.keys(node);
-        const key = keys.find(k => k !== LET);
-        if (!keys.includes(LET)) return head(env, key, node[key], path);
+        const key = keys.find(k => k !== LET && k !== INCLUDE);
+        let outer = env;
+        if (keys.includes(INCLUDE)) {
+            const { included, names } = includeModules(env.included, modules, node[INCLUDE], pointer(path, INCLUDE));
+            const funcs = new Map(env.funcs);
+            names.forEach(name => funcs.delete(name));
+            outer = { ...env, included, funcs };
+        }
+        if (!keys.includes(LET)) return head(outer, key, node[key], path);
 
         const letPath = pointer(path, LET);
         const declarations = node[LET];
-        const funcs = new Map(env.funcs);
-        const inner = { ...env, funcs, vars: { ...env.vars }, origins: { ...env.origins } };
+        const funcs = new Map(outer.funcs);
+        const inner = { ...outer, funcs, vars: { ...outer.vars }, origins: { ...outer.origins }, included: new Map(outer.included) };
         for (const name of Object.keys(declarations)) {
-            if (name.startsWith('$')) funcs.set(name, { tree: declarations[name], path: pointer(letPath, name), funcs });
+            if (!name.startsWith('$')) continue;
+            inner.included.delete(name);
+            funcs.set(name, { tree: declarations[name], path: pointer(letPath, name), funcs, included: inner.included });
         }
         for (const name of Object.keys(declarations)) {
             if (name.startsWith('$')) continue;
@@ -152,7 +165,7 @@ function createEngine(prims, report) {
 
     function head(env, key, value, path) {
         const argPath = pointer(path, key);
-        const prim = prims[key];
+        const prim = env.included.get(key)?.primitive ?? prims[key];
         return prim !== undefined ? primitive(env, key, prim, value, argPath) : functionCall(env, key, value, argPath);
     }
 
@@ -163,10 +176,10 @@ function createEngine(prims, report) {
         active.add(decl);
         try {
             const fn = isPlainObject(decl.tree) && Object.keys(decl.tree).length === 1 ? decl.tree.$fn : undefined;
-            if (fn === undefined) return tree({ input: arg, inputPath: null, vars: env.vars, origins: env.origins, funcs: decl.funcs }, decl.tree, decl.path);
+            if (fn === undefined) return tree({ input: arg, inputPath: null, vars: env.vars, origins: env.origins, funcs: decl.funcs, included: decl.included }, decl.tree, decl.path);
             const vars = { ...env.vars, ...bindParameters(fn.as, arg, path) };
             const origins = omit(env.origins, isArray(fn.as) ? fn.as : [fn.as]);
-            return tree({ input: env.input, inputPath: env.inputPath, vars, origins, funcs: decl.funcs }, fn.body, pointer(decl.path, '$fn', 'body'));
+            return tree({ input: env.input, inputPath: env.inputPath, vars, origins, funcs: decl.funcs, included: decl.included }, fn.body, pointer(decl.path, '$fn', 'body'));
         } finally {
             active.delete(decl);
         }
@@ -627,4 +640,54 @@ function createEngine(prims, report) {
     };
 
     return { tree, reads: finalReads };
+}
+
+/**
+ * Types the source of a module (see `compileModule`). Returns the exports as typed primitives, to inject into
+ * `infer` as a module, and the problems found in the functions (paths start with `/functions/$name`).
+ * A function with a signature is inferred with `#` of the type `takes`, and its result is checked against `returns`;
+ * one without takes anything and returns the type `infer` gives its mapping (with `#` of unknown type).
+ * A function reached again while it is being inferred is typed `any`, so the order of declaration doesn't matter.
+ * @param {object} source
+ * @param {{ primitives?: object, modules?: object }} options
+ * @returns {{ module: object, problems: { severity: 'error' | 'warning', code: string, path: string, message: string }[] }}
+ */
+export function typeModule(source, { primitives: host = {}, modules = {} } = {}) {
+    let parsed;
+    try {
+        parsed = parseSource(source);
+    } catch (error) {
+        if (!(error instanceof LambdaJSONError)) throw error;
+        return { module: {}, problems: [{ severity: 'error', code: error.code, path: error.path, message: error.message }] };
+    }
+    const { functions, exports, signatures } = parsed;
+    const problems = [];
+    const results = new Map();
+    const active = new Set();
+    const notRun = () => () => () => { throw new Error('a typed module is not run'); };
+
+    const resultOf = name => signatures[name]?.returns !== undefined ? toType(signatures[name].returns) : bodyType(name);
+    const own = Object.fromEntries(Object.keys(functions).map(name =>
+        [name, typed(notRun(), { takes: signatures[name]?.takes ?? 'any' }, () => resultOf(name))]));
+
+    function bodyType(name) {
+        if (results.has(name)) return results.get(name);
+        if (active.has(name)) return ANY;
+        active.add(name);
+        const signature = signatures[name];
+        const base = functionPath(name);
+        const result = infer(functions[name], { input: signature?.takes ?? {}, primitives: { ...host, ...own }, modules });
+        for (const p of result.problems) problems.push({ ...p, path: base + p.path });
+        if (signature?.returns !== undefined && disjoint(result.type, toType(signature.returns))) {
+            problems.push({ severity: 'error', code: 'type-mismatch', path: base, message: `the result is ${describe(result.type)}, expected ${describe(toType(signature.returns))}` });
+        }
+        active.delete(name);
+        results.set(name, result.type);
+        return result.type;
+    }
+
+    for (const name of Object.keys(functions)) bodyType(name);
+    const module = Object.fromEntries(exports.map(name =>
+        [name, typed(notRun(), { takes: signatures[name]?.takes ?? 'any', returns: resultOf(name) })]));
+    return { module, problems };
 }

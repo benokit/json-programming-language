@@ -421,6 +421,64 @@ const customPrimitives = {
 
 ---
 
+## Modules
+
+A module is a named set of functions that programs share. It is a plain object whose keys are function names
+(each starts with `$`, has no `/`, and is not a primitive of the language) and whose values are primitives.
+A host injects modules into `compile` and `infer`; the language owns the rules about names and scope.
+
+```js
+import { compile, infer } from "lambdajson-js";
+
+const pricing = { $net: argument => input => argument(input) / 1.2 };
+
+compile({ "$pricing/net": "#.gross" }, {}, { modules: { pricing } })({ gross: 120 }); // => 100
+infer(program, { input, modules: { pricing: typedPricing } });                       // modules of typed primitives
+```
+
+* **Qualified call.** `{ "$mod/name": argument }` calls the member `$name` of the module `mod`. A module name is lowercase words
+  or digits joined by `-` (`invalid-module-name` otherwise). A module that is not injected is `unknown-module`, at the call.
+  A primitive of the host with the same qualified name has priority.
+* **`$include`.** `{ "$include": ["pricing", "dates"], "$in": body }` brings the members of the listed modules into scope, unscoped
+  (`{ "$net": … }`), in `$in`, lambda bodies and `$fn` included. It takes a literal array of names (`unknown-module` at the
+  `$include` for a name that is not injected), may stand beside `$let` (write `$include` first, its names are visible in the `$let`),
+  and its scope is lexical: an inner `$include` or `$let` function shadows an outer name. `$capture` and `$template` do not carry the
+  names into the program they return. When two modules of one list have the same member, calling the unscoped name is
+  `ambiguous-function` (`error.data.modules` lists them); the qualified calls work.
+* **Reserved names.** A member named like a primitive of the language (`$map`, `$if`, …) is `reserved-function`, reported when the
+  module is injected or defined.
+
+### Defining a module in LambdaJSON
+
+`compileModule(source, { primitives, modules })` turns a source into a module:
+
+```js
+import { compileModule } from "lambdajson-js";
+
+const pricing = compileModule({
+  functions: {
+    $vat:   { $multiply: ["#", 0.2] },
+    $gross: { $sum: ["#.net", { $vat: "#.net" }] },
+    $net:   { $divide: ["#", 1.2] }
+  },
+  exports: ["$gross", "$net"],            // optional: without it every function is exported
+  signatures: { $gross: { takes: { type: "object", properties: { net: { type: "number" } }, required: ["net"] }, returns: { type: "number" } } }
+});                                       // => { $gross, $net }; $vat stays private
+```
+
+A call `{ "$name": argument }` evaluates the function's mapping with the value of the argument as `#`. A function sees the primitives of
+the language, the host's `primitives`, the injected `modules` (qualified, or with its own `$include`) and the functions of its own module
+unscoped, private ones included, in any order and with recursion; it does not see the names of the program that calls it. Errors
+carry the path `/functions/$name/…`. Exported primitives are ordinary primitives; a declared signature is attached to them, and
+the language does not check it at run time. A bad source is `invalid-module`, `unknown-export` or `unknown-signature`.
+
+`typeModule(source, { primitives, modules })` returns `{ module, problems }`: `module` holds the exports as typed primitives, to inject
+into `infer`; `problems` are what `infer` finds in the functions, with paths starting `/functions/$name`. A function with a signature is
+inferred with `#` of the type `takes` and its result is checked against `returns` (`type-mismatch`); one without takes anything and
+returns the type inferred for its mapping, with `#` of unknown type. A function reached again while it is being inferred is typed `any`.
+
+---
+
 ## Migrating from 2.x
 
 * Arithmetic and ordering primitives now throw `LambdaJSONRuntimeError` (`missing-operand`) on `null`/`undefined` operands; guard with `$coalesce` or `$if` where a missing value was expected.
