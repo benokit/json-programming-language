@@ -1558,6 +1558,73 @@ describe('pure json programming language', () => {
         });
     });
 
+    describe('type tests and $startsWith (3.10.0)', () => {
+        const values = [null, undefined, true, false, 0, 5, '', 'a', [], [1], {}, { a: 1 }];
+        const answers = name => { const f = compile({ [name]: '#' }); return values.map(v => f(v)); };
+        const only = idx => values.map((v, i) => idx.includes(i));
+        it('$isString', () => expect(answers('$isString')).to.deep.equal(only([6, 7])));
+        it('$isNumber', () => expect(answers('$isNumber')).to.deep.equal(only([4, 5])));
+        it('$isBoolean', () => expect(answers('$isBoolean')).to.deep.equal(only([2, 3])));
+        it('$isObject is false for arrays and null', () => expect(answers('$isObject')).to.deep.equal(only([10, 11])));
+        describe('$startsWith', () => {
+            const starts = (prefix, string) => compile({ $startsWith: { prefix, string: '#' } })(string);
+            it('strings', () => {
+                expect(starts('ab', 'abc')).to.equal(true);
+                expect(starts('ab', 'xab')).to.equal(false);
+                expect(starts('ab', 'ab')).to.equal(true);
+                expect(starts('abc', 'ab')).to.equal(false);
+                expect(starts('', 'x')).to.equal(true);
+                expect(starts('', '')).to.equal(true);
+            });
+            it('the prefix is text, not a pattern', () => {
+                expect(starts('.', 'a')).to.equal(false);
+                expect(starts('^', '^a')).to.equal(true);
+                expect(starts('[', '[a')).to.equal(true);
+            });
+            it('a value that is not a string is false', () => {
+                for (const v of [5, null, undefined, {}, [], true]) expect(starts('', v)).to.equal(false);
+            });
+            it('missing path and default input', () => {
+                expect(compile({ $startsWith: { prefix: 'a', string: '#.nope' } })({})).to.equal(false);
+                expect(compile({ $startsWith: { prefix: 'a' } })('abc')).to.equal(true);
+            });
+        });
+        describe('$endsWith', () => {
+            const ends = (suffix, string) => compile({ $endsWith: { suffix, string: '#' } })(string);
+            it('strings and text suffixes', () => {
+                expect(ends('bc', 'abc')).to.equal(true);
+                expect(ends('bc', 'bcx')).to.equal(false);
+                expect(ends('abc', 'bc')).to.equal(false);
+                expect(ends('', 'x')).to.equal(true);
+                expect(ends('.', 'a')).to.equal(false);
+                expect(ends('$', 'a$')).to.equal(true);
+            });
+            it('a value that is not a string is false; the input is the default', () => {
+                for (const v of [5, null, undefined, {}, [], true]) expect(ends('', v)).to.equal(false);
+                expect(compile({ $endsWith: { suffix: 'c' } })('abc')).to.equal(true);
+            });
+            it('suffix must be a string', () => {
+                expect(infer({ $endsWith: { suffix: 5 } }, { input: { type: 'string' } }).problems.map(p => p.code)).to.deep.equal(['type-mismatch']);
+            });
+        });
+        it('infer gives boolean', () => {
+            for (const p of [{ $isNumber: '#' }, { $isString: '#' }, { $isBoolean: '#' }, { $isObject: '#' }, { $startsWith: { prefix: 'a' } }]) {
+                const r = infer(p, { input: { type: 'string' } });
+                expect(r.type).to.deep.equal({ type: 'boolean' });
+                expect(r.problems).to.deep.equal([]);
+            }
+        });
+        it('a prefix that is not a string is a type-mismatch', () => {
+            expect(infer({ $startsWith: { prefix: 5 } }, { input: { type: 'string' } }).problems.map(p => p.code)).to.deep.equal(['type-mismatch']);
+        });
+        it('the names are reserved', () => {
+            for (const name of ['$isString', '$isBoolean', '$isNumber', '$isObject', '$startsWith', '$endsWith']) {
+                expect(() => compile({ $let: { [name]: '#' }, [name]: '#' })).to.throw().with.property('code', 'shadowed-primitive');
+                expect(() => compileModule({ functions: { [name]: '#' } })).to.throw().with.property('code', 'reserved-function');
+            }
+        });
+    });
+
     describe('reads (3.8.0)', () => {
         const reads = (program, options) => infer(program, options).reads;
         it('a path', () => {

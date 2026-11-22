@@ -236,6 +236,18 @@ const primitiveTable = {
     $trim: f => x => toStr(f(x)).trim(),
     $isNil: f => x => isNil(f(x)),
     $isArray: f => x => isArray(f(x)),
+    $isString: f => x => typeof f(x) === 'string',
+    $isBoolean: f => x => typeof f(x) === 'boolean',
+    $isNumber: f => x => typeof f(x) === 'number',
+    $isObject: f => x => isPlainObject(f(x)),
+    $startsWith: named(['prefix', 'string=#'], ({ prefix, string }) => x => {
+        const s = string(x);
+        return typeof s === 'string' && s.startsWith(prefix(x));
+    }),
+    $endsWith: named(['suffix', 'string=#'], ({ suffix, string }) => x => {
+        const s = string(x);
+        return typeof s === 'string' && s.endsWith(suffix(x));
+    }),
     $parseInt: f => x => { const n = parseInt(f(x), 10); return isNaN(n) ? undefined : n; },
     $parseFloat: f => x => { const n = parseFloat(f(x)); return isNaN(n) ? undefined : n; },
 }
@@ -302,6 +314,9 @@ const signatures = {
     $omit: sig({ keys: 'array<string>', object: 'object' }, 'object'),
     $lower: sig('string', 'string'), $upper: sig('string', 'string'), $trim: sig('string', 'string'),
     $isNil: sig('any', 'boolean'), $isArray: sig('any', 'boolean'),
+    $isString: sig('any', 'boolean'), $isBoolean: sig('any', 'boolean'), $isNumber: sig('any', 'boolean'), $isObject: sig('any', 'boolean'),
+    $startsWith: sig({ prefix: 'string', string: 'any' }, 'boolean'),
+    $endsWith: sig({ suffix: 'string', string: 'any' }, 'boolean'),
     $parseInt: sig('string', 'number'), $parseFloat: sig('string', 'number'),
 };
 

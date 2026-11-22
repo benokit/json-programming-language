@@ -32,6 +32,11 @@ and the errors and warnings (impossible paths, possibly missing operands, mismat
 comparisons, unbound variables) found from the type of the input, without running the program.
 See the language documentation.
 
+## Changes in 3.10.0
+
+* New primitives `$isString`, `$isNumber`, `$isBoolean`, `$isObject`, `$startsWith` and `$endsWith`. A module or `$let` function with one of these names no longer compiles
+  (`reserved-function`, `shadowed-primitive`).
+
 ## Changes in 3.9.0
 
 * Modules: `compile(program, primitives, { modules })` and `infer(program, { modules })` take named objects of functions; call a member as

@@ -196,6 +196,13 @@ Without `as`, `$fold` and `$zip` pass the pair as `#`, read as `#0` and `#1`.
   `{ "$toList": x }` is the same for one operand, except that a nil gives `[]`. Both keep the item type in `infer`: `[[], x]` with `x: T`, `T[]` or `T | T[]` is `array<T>`.
 * `{ "$map": { "over": object, "as": ["value", "key"], "fn": … } }` maps the entries of an object to a list; with a list, `as` is `[item, index]`.
 * `{ "$isArray": x }` is `true` for a list, `false` for anything else, nil included.
+* Type tests `$isString`, `$isNumber`, `$isBoolean`, `$isObject` take one expression and answer `true` or `false`; they never throw.
+  `$isObject` is `false` for a list and for nil, so `$isNil`, `$isArray`, `$isString`, `$isNumber`, `$isBoolean` and `$isObject` are true for disjoint values.
+* `{ "$startsWith": { "prefix", "string=#" } }` is `true` when `string` is a string that begins with `prefix`. The prefix is text, not a pattern;
+  a `string` that is not a string (number, nil, object) gives `false` and is not converted to text, unlike `$isMatch`, which converts its argument to text.
+  `{ "$endsWith": { "suffix", "string=#" } }` is the same for the end of the string.
+  In `infer`, `prefix` and `suffix` must be a string (else `type-mismatch`); the result is `boolean`, and nothing is narrowed.
+* `$replace` treats `regex` as literal text unless `global` is `true`, in which case it is compiled as a regular expression.
 * `{ "$and": [a, b, …] }` and `{ "$or": [a, b, …] }` short-circuit and return the deciding value, like `&&` and `||`.
   `$and` of nothing is `true`, `$or` of nothing is `false`. Given an expression instead of an array, they apply to the array it evaluates to.
 * `{ "$not": x }` is the boolean negation (`$negate` is the same).
@@ -265,7 +272,9 @@ Without `as`, `$fold` and `$zip` pass the pair as `#`, read as `#0` and `#1`.
 | `$find` | `{ predicate, collection=#, as? }` |
 | `$pick`, `$omit` | `{ keys, object=# }` |
 | `$lower`, `$upper`, `$trim` | string |
-| `$isNil`, `$isArray` | expression |
+| `$isNil`, `$isArray`, `$isString`, `$isNumber`, `$isBoolean`, `$isObject` | expression |
+| `$startsWith` | `{ prefix, string=# }` |
+| `$endsWith` | `{ suffix, string=# }` |
 | `$literal` | any value, not evaluated |
 | `$capture` | `{ values?, in }` |
 | `$template` | `{ with?, mapping }` |
